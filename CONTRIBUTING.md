@@ -5,7 +5,7 @@ Thanks for wanting to help give quiet work its moment. This is a small, local-fi
 ## Getting set up
 
 ```bash
-git clone https://github.com/ozansozuoz/silent-heroes.git
+git clone https://github.com/ozansozuozgit/silent-heroes.git
 cd silent-heroes
 npm install
 npm run dev

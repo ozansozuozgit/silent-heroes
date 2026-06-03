@@ -5,10 +5,10 @@
   "description": "Find under-credited contributors in any public GitHub repo and give their quiet work a recognition moment. Local-first, no backend.",
   "license": "MIT",
   "type": "module",
-  "homepage": "https://github.com/ozansozuoz/silent-heroes",
+  "homepage": "https://github.com/ozansozuozgit/silent-heroes",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ozansozuoz/silent-heroes.git"
+    "url": "https://github.com/ozansozuozgit/silent-heroes.git"
   },
   "keywords": [
     "github",

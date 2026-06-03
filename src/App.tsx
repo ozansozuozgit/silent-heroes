@@ -29,7 +29,7 @@ function runDemo(): AnalysisResult {
 const initialAnalysis = runDemo()
 
 // Where the project lives. Update if you fork it under a different owner.
-const REPO_URL = 'https://github.com/ozansozuoz/silent-heroes'
+const REPO_URL = 'https://github.com/ozansozuozgit/silent-heroes'
 
 // Cohesive chart palette: emerald lead, champagne gold for the celebration, warm supports.
 const MIX_COLORS = ['#059669', '#c79a3b', '#14b8a6', '#84a98c', '#b08968']
@@ -194,12 +194,7 @@ function Header({
           </svg>
         </span>
         <div className="brand-text">
-          <span className="brand-row">
-            <strong>Silent Heroes</strong>
-            <a className="oss-badge" href={REPO_URL} target="_blank" rel="noopener noreferrer">
-              <GitHubMark /> Open source
-            </a>
-          </span>
+          <strong>Silent Heroes</strong>
           <small>give quiet work its moment</small>
         </div>
       </div>

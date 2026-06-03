@@ -33,7 +33,7 @@ Naïve "top contributor" tools just rank commit authors — which means they cro
 No backend, no API keys required.
 
 ```bash
-git clone https://github.com/ozansozuoz/silent-heroes.git
+git clone https://github.com/ozansozuozgit/silent-heroes.git
 cd silent-heroes
 npm install
 npm run dev
