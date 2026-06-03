@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import './App.css'
 import { parseGitHubRepoUrl } from './core/githubUrl'
 import { demoEvidence, demoRecognition, demoRepo } from './core/sampleData'
@@ -529,15 +529,20 @@ function ContributionDonut({
   mix: Array<{ key: string; value: number; color: string }>
   total: number
 }) {
-  let acc = 0
   const stops = mix
-    .map((m) => {
-      const start = (acc / total) * 100
-      acc += m.value
-      const end = (acc / total) * 100
-      return `${m.color} ${start}% ${end}%`
-    })
-    .join(', ')
+    .reduce<{ offset: number; stops: string[] }>(
+      (state, m) => {
+        const start = (state.offset / total) * 100
+        const nextOffset = state.offset + m.value
+        const end = (nextOffset / total) * 100
+        return {
+          offset: nextOffset,
+          stops: [...state.stops, `${m.color} ${start}% ${end}%`],
+        }
+      },
+      { offset: 0, stops: [] },
+    )
+    .stops.join(', ')
 
   return (
     <div className="chart-card">
@@ -834,12 +839,12 @@ function useCountUp(target: number, resetKey: string): number {
     if (typeof window === 'undefined') return
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
     if (reduce) {
-      setValue(target)
-      return
+      frame.current = requestAnimationFrame(() => setValue(target))
+      return () => cancelAnimationFrame(frame.current)
     }
     const start = performance.now()
     const duration = 950
-    setValue(0)
+    frame.current = requestAnimationFrame(() => setValue(0))
     const tick = (now: number) => {
       const p = Math.min(1, (now - start) / duration)
       const eased = 1 - Math.pow(1 - p, 3)
@@ -848,23 +853,32 @@ function useCountUp(target: number, resetKey: string): number {
     }
     frame.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame.current)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, resetKey])
 
   return value
 }
 
+function subscribeReducedMotion(listener: () => void) {
+  const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+  if (!mq) return () => undefined
+  mq.addEventListener?.('change', listener)
+  return () => mq.removeEventListener?.('change', listener)
+}
+
+function getReducedMotionSnapshot(): boolean {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+}
+
+function getReducedMotionServerSnapshot(): boolean {
+  return false
+}
+
 function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-  useEffect(() => {
-    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)')
-    if (!mq) return
-    setReduced(mq.matches)
-    const handler = () => setReduced(mq.matches)
-    mq.addEventListener?.('change', handler)
-    return () => mq.removeEventListener?.('change', handler)
-  }, [])
-  return reduced
+  return useSyncExternalStore(
+    subscribeReducedMotion,
+    getReducedMotionSnapshot,
+    getReducedMotionServerSnapshot,
+  )
 }
 
 /* --------------------------------------------------------------------- utils */
