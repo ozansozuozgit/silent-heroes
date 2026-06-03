@@ -1,81 +1,82 @@
-# Silent Heroes
+<div align="center">
 
-Silent Heroes is an open-source, no-install attribution intelligence prototype for public GitHub repositories.
+# ⭐ Silent Heroes
 
-Paste a repo URL and the app builds a cautious recognition report for people whose work may not show up in normal commit-based contributor graphs: reviewers, issue originators, docs/test maintainers, release unblockers, and other quiet contributors.
+**Find the under-credited people in any public GitHub repo — and give their quiet work a moment.**
 
-Core principle: Git blame shows who changed the line. Silent Heroes shows who publicly helped shape the work.
+[![License: MIT](https://img.shields.io/badge/License-MIT-059669.svg)](./LICENSE)
+![Local-first](https://img.shields.io/badge/local--first-no%20backend-059669)
+![React](https://img.shields.io/badge/React-19-14b8a6)
+![Vite](https://img.shields.io/badge/Vite-7-c79a3b)
 
-## What works now
+</div>
 
-- Static client-side Vite/React app; no backend required.
-- Public GitHub repo analyzer with optional token for higher rate limits.
-- Demo mode that works without network/API quota.
-- Evidence-backed recognition candidates with roles, confidence labels, and cautious copy.
-- Recognition debt cards and influence-map style visualization.
-- Evidence timeline with public links.
-- Shareable award preview with copyable credit note and downloadable SVG.
-- AI/BYOK architecture panel for future provider adapters.
-- Pure TypeScript scoring core with unit tests.
+---
 
-## Accuracy stance
+Git blame shows who changed the line. **Silent Heroes shows who quietly helped shape the work** — the reviewers, issue originators, docs/test maintainers, and release unblockers who rarely show up in a commit-based contributor graph.
 
-Silent Heroes does not claim hidden facts. It only analyzes public evidence it can retrieve and uses language like “public evidence suggests.”
+Paste a public repo, and it builds a cautious, evidence-backed recognition report, then celebrates the top **silent hero** with a shareable card.
 
-Every attribution candidate should eventually have:
+## Why it's different
 
-- role
-- confidence
-- evidence
-- explanation
-- correction/dispute path
+Naïve "top contributor" tools just rank commit authors — which means they crown the people who are *already* the most visible. Silent Heroes deliberately does the opposite:
 
-## Local development
+- **Stable, stated window.** Every report covers a fixed trailing window (default **120 days**), filtered by event date — not GitHub's "recently updated" fuzz. You always know what you're looking at.
+- **Recognition-adjusted.** It pulls the all-time contributor graph and **excludes the repo owner and top-10 committers**, discounting anyone already prominent. A reviewer who never authors commits scores highest — that's the actual silent hero.
+- **Under-credit, not volume.** Score = sqrt-damped collaborative contribution × (1 − recognition), so one heavy dimension can't saturate the result.
+- **Honest empties.** Toy, dead, or maintainer-only repos return an empty stage instead of inventing a hero.
 
-```bash
-pnpm install
-pnpm dev
-```
+> It's a prompt for human recognition — **confidence, not certainty.** Never an automated award.
 
-Open `http://127.0.0.1:5173/` or the URL Vite prints.
+## Quick start
 
-## Verification
+No backend, no API keys required.
 
 ```bash
-pnpm test
-pnpm lint
-pnpm build
+git clone https://github.com/ozansozuoz/silent-heroes.git
+cd silent-heroes
+npm install
+npm run dev
 ```
 
-Current verified state: all three commands pass.
+Open the printed local URL. Hit **Demo** to explore the model offline, or paste any `owner/repo` (or full GitHub URL) and **Scan repo**.
 
-## Current MVP scan window
+> **Rate limits:** anonymous GitHub allows ~60 requests/hour and a healthy scan uses ~37. Add a read-only token under **Settings → GitHub access token** for comfortable use. The token stays in tab memory only — a refresh clears it.
 
-Live analysis intentionally uses a bounded window to avoid requiring repo installation or a backend worker:
+### Scripts
 
-- latest 18 closed/merged PRs
-- latest 24 issues
-- latest 24 commits
-- review/file details for the newest merged PRs
-- file details for the latest 12 commits
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Start the Vite dev server |
+| `npm run build` | Type-check and build to `dist/` |
+| `npm run preview` | Preview the production build |
+| `npm test` | Run the unit tests (Vitest) |
+| `npm run lint` | Lint with ESLint |
 
-This is a quick public scan, not a complete historical attribution audit.
+## How it works
 
-## AI provider direction
+```
+src/
+  core/
+    githubUrl.ts     # parse owner/repo or GitHub URLs
+    scoring.ts       # the recognition model (windowing, recognition gate, under-credit score)
+    sampleData.ts    # offline demo evidence + recognition graph
+    types.ts         # shared domain types
+  lib/
+    githubClient.ts  # fetch evidence + the all-time contributor graph
+  App.tsx            # the recognition stage UI
+```
 
-The deterministic scoring core works without AI. Future AI use should be optional and evidence-constrained:
+A live scan pulls a bounded slice of public activity (recent merged PRs, issues, commits with file detail, and reviews on the newest merged PRs) plus the all-time contributor graph — a quick public scan, not a full historical audit. The scoring core is pure TypeScript with unit tests (`src/core/scoring.test.ts`) — the easiest place to start contributing.
 
-- classify contribution roles from comments/diffs
-- compare suggestion text to later diffs
-- summarize evidence into shareable credit narratives
-- never create claims without evidence IDs/links
+## Privacy
 
-Planned adapters:
+Fully client-side. No telemetry, no storage, no server. Tokens and any AI keys live only in the current tab's memory. All evidence links open directly on github.com.
 
-- OpenAI-compatible API or local endpoint
-- Anthropic API key
-- command adapter for tools like `claude -p`, `codex exec`, or `ollama`
+## Contributing
 
-## Continuation notes
+Issues and PRs are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). Good first areas: tuning the scoring window/gates, new contribution signals, chart polish, and accessibility.
 
-Implementation checkpoint and next-step notes live at `.hermes/continuation.md`.
+## License
+
+[MIT](./LICENSE) © 2026 Ozan Sozuoz

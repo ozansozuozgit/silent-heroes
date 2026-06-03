@@ -28,6 +28,9 @@ function runDemo(): AnalysisResult {
 
 const initialAnalysis = runDemo()
 
+// Where the project lives. Update if you fork it under a different owner.
+const REPO_URL = 'https://github.com/ozansozuoz/silent-heroes'
+
 // Cohesive chart palette: emerald lead, champagne gold for the celebration, warm supports.
 const MIX_COLORS = ['#059669', '#c79a3b', '#14b8a6', '#84a98c', '#b08968']
 
@@ -144,6 +147,8 @@ function App() {
           <EmptyStage analysis={analysis} repoLabel={repoLabel} onDemo={runDemoAnalysis} />
         )}
 
+        <CloneStrip />
+
         <footer className="footer">
           <span>{repoLabel}</span>
           <span>Generated {formatDate(analysis.generatedAt)}</span>
@@ -189,19 +194,24 @@ function Header({
           </svg>
         </span>
         <div className="brand-text">
-          <strong>Silent Heroes</strong>
+          <span className="brand-row">
+            <strong>Silent Heroes</strong>
+            <a className="oss-badge" href={REPO_URL} target="_blank" rel="noopener noreferrer">
+              <GitHubMark /> Open source
+            </a>
+          </span>
           <small>give quiet work its moment</small>
         </div>
       </div>
 
       <form className="repo-form" onSubmit={onSubmit}>
-        <span className="repo-prefix">github.com/</span>
+        <span className="repo-icon" aria-hidden="true"><GitHubMark /></span>
         <input
           id="repo-url"
-          aria-label="GitHub repository URL"
+          aria-label="GitHub repository (owner/repo or URL)"
           value={repoInput}
           onChange={(event) => onRepoChange(event.target.value)}
-          placeholder="owner/repo"
+          placeholder="owner/repo  —  or paste a GitHub URL"
           spellCheck={false}
         />
         <button type="submit" className="btn-accent" disabled={isLoading}>
@@ -213,6 +223,10 @@ function Header({
         <button type="button" className="btn-ghost" onClick={onDemo} disabled={isLoading}>
           Demo
         </button>
+        <a className="btn-ghost icon star" href={REPO_URL} target="_blank" rel="noopener noreferrer" aria-label="Star Silent Heroes on GitHub">
+          <GitHubMark />
+          <span>Star</span>
+        </a>
         <button
           type="button"
           className={`btn-ghost icon ${settingsOpen ? 'active' : ''} ${token ? 'has-dot' : ''}`}
@@ -228,6 +242,43 @@ function Header({
         </button>
       </div>
     </header>
+  )
+}
+
+function CloneStrip() {
+  const cloneCmd = `git clone ${REPO_URL}.git && cd silent-heroes && npm install && npm run dev`
+  return (
+    <section className="oss-strip" aria-label="Open source">
+      <div className="oss-copy">
+        <span className="oss-kicker"><GitHubMark /> Open source · MIT</span>
+        <h3>Run it on your own machine</h3>
+        <p>No backend, no tracking — clone it, scan any public repo, fork it, send a PR.</p>
+      </div>
+      <div className="oss-actions">
+        <div className="clone">
+          <code>{cloneCmd}</code>
+          <button type="button" onClick={() => void safeCopy(cloneCmd)} aria-label="Copy clone command">
+            Copy
+          </button>
+        </div>
+        <div className="oss-links">
+          <a className="btn-ghost" href={REPO_URL} target="_blank" rel="noopener noreferrer">
+            <GitHubMark /> View on GitHub
+          </a>
+          <a className="btn-ghost" href={`${REPO_URL}/blob/main/CONTRIBUTING.md`} target="_blank" rel="noopener noreferrer">
+            Contribute
+          </a>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function GitHubMark() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" />
+    </svg>
   )
 }
 

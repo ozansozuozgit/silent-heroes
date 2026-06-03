@@ -1,8 +1,25 @@
 {
   "name": "silent-heroes",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Find under-credited contributors in any public GitHub repo and give their quiet work a recognition moment. Local-first, no backend.",
+  "license": "MIT",
   "type": "module",
+  "homepage": "https://github.com/ozansozuoz/silent-heroes",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ozansozuoz/silent-heroes.git"
+  },
+  "keywords": [
+    "github",
+    "open-source",
+    "contributors",
+    "recognition",
+    "attribution",
+    "maintainers",
+    "react",
+    "vite"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
