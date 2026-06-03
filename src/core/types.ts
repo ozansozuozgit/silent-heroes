@@ -48,16 +48,21 @@ export type ContributorStats = {
   docsTouches: number
   testTouches: number
   totalEvidence: number
+  /** Lifetime commits on the default branch, from the contributor graph. */
+  allTimeCommits: number
 }
 
 export type RecognitionCandidate = {
   actor: string
+  /** Display under-credit index, 0-100, relative to the top candidate in this scan. */
   score: number
   confidence: ConfidenceLabel
   roles: ContributorRole[]
   headline: string
   rationale: string
   stats: ContributorStats
+  /** 0 (invisible) to 1 (already highly recognized: owner / top committer). */
+  recognitionFactor: number
   evidence: EvidenceItem[]
 }
 
@@ -65,18 +70,29 @@ export type AnalysisResult = {
   repo: RepoRef
   generatedAt: string
   mode: 'demo' | 'live'
+  /** Trailing window, in days, that the report covers. */
+  windowDays: number
   candidates: RecognitionCandidate[]
   evidence: EvidenceItem[]
   warnings: string[]
   summary: {
+    /** Evidence items inside the analysis window. */
     evidenceCount: number
     contributorCount: number
     highestDebtScore: number
   }
 }
 
+/** All-time contribution graph used to discount already-recognized people. */
+export type RecognitionGraph = {
+  ownerLogin: string
+  totalContributions: number
+  contributors: Record<string, { contributions: number; rank: number }>
+}
+
 export type GitHubFetchResult = {
   repo: RepoRef
   evidence: EvidenceItem[]
   warnings: string[]
+  recognition: RecognitionGraph
 }

@@ -1,7 +1,12 @@
-import type { EvidenceItem, GitHubFetchResult, RepoRef } from '../core/types'
+import type { EvidenceItem, GitHubFetchResult, RecognitionGraph, RepoRef } from '../core/types'
 
 type GitHubUser = {
   login?: string
+}
+
+type GitHubContributor = {
+  login?: string
+  contributions?: number
 }
 
 type GitHubPullRequest = {
@@ -72,6 +77,21 @@ export async function fetchGitHubEvidence(
   const evidence: EvidenceItem[] = []
 
   await client<GitHubRepo>(`/repos/${repo.owner}/${repo.repo}`)
+
+  // The all-time contributor graph lets scoring discount people who are already
+  // recognized (the owner, top committers) instead of crowning them.
+  const contributors = await safeRequest<GitHubContributor[]>(
+    client,
+    `/repos/${repo.owner}/${repo.repo}/contributors?per_page=100&anon=false`,
+    warnings,
+    'contributor graph',
+  )
+  const recognition = buildRecognition(repo.owner, contributors)
+  if (!contributors || contributors.length === 0) {
+    warnings.push(
+      'Contributor graph was unavailable, so already-credited maintainers are filtered less strictly.',
+    )
+  }
 
   const [pulls, issues, commits] = await Promise.all([
     safeRequest<GitHubPullRequest[]>(
@@ -147,7 +167,29 @@ export async function fetchGitHubEvidence(
 
   evidence.push(...mergedByEvidence)
 
-  return { repo, evidence, warnings: [...new Set(warnings)] }
+  return { repo, evidence, warnings: [...new Set(warnings)], recognition }
+}
+
+function buildRecognition(
+  owner: string,
+  contributors: GitHubContributor[] | null,
+): RecognitionGraph {
+  const map: RecognitionGraph['contributors'] = {}
+  let total = 0
+
+  // The contributors endpoint returns logins already sorted by contribution count.
+  ;(contributors ?? []).forEach((contributor, index) => {
+    if (!contributor.login) return
+    const contributions = contributor.contributions ?? 0
+    map[contributor.login.toLowerCase()] = { contributions, rank: index + 1 }
+    total += contributions
+  })
+
+  return {
+    ownerLogin: owner,
+    totalContributions: total || 1,
+    contributors: map,
+  }
 }
 
 function createClient(token?: string) {

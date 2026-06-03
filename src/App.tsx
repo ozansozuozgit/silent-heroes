@@ -1,33 +1,41 @@
 import { useMemo, useState } from 'react'
 import './App.css'
 import { parseGitHubRepoUrl } from './core/githubUrl'
-import { demoEvidence, demoRepo } from './core/sampleData'
-import { analyzeRecognitionDebt } from './core/scoring'
+import { demoEvidence, demoRecognition, demoRepo } from './core/sampleData'
+import { WINDOW_DAYS, analyzeRecognitionDebt } from './core/scoring'
 import type { AnalysisResult, EvidenceItem, RecognitionCandidate } from './core/types'
 import { fetchGitHubEvidence } from './lib/githubClient'
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
 type AiProvider = 'none' | 'openai' | 'anthropic' | 'command'
 
-const initialAnalysis = analyzeRecognitionDebt(demoRepo, demoEvidence, 'demo', [
-  'Demo mode uses synthetic public-style evidence so you can inspect the recognition model without spending GitHub API quota.',
-])
+// Demo data is fixed in time, so anchor its window to the data instead of the wall clock.
+const demoNow =
+  Math.max(...demoEvidence.map((item) => new Date(item.createdAt).getTime())) + 86_400_000
 
-const providerLabels: Record<AiProvider, string> = {
-  none: 'Deterministic only',
-  openai: 'OpenAI-compatible',
-  anthropic: 'Anthropic BYOK',
-  command: 'Local CLI adapter',
+function runDemo(): AnalysisResult {
+  return analyzeRecognitionDebt(
+    demoRepo,
+    demoEvidence,
+    'demo',
+    demoRecognition,
+    [
+      'Demo mode uses synthetic public-style evidence so you can inspect the recognition model without spending GitHub API quota.',
+    ],
+    demoNow,
+  )
 }
 
+const initialAnalysis = runDemo()
+
 function App() {
-  const [repoInput, setRepoInput] = useState('https://github.com/vitejs/vite')
+  const [repoInput, setRepoInput] = useState('vitejs/vite')
   const [token, setToken] = useState('')
   const [status, setStatus] = useState<LoadState>('ready')
   const [statusText, setStatusText] = useState('Demo analysis loaded')
   const [analysis, setAnalysis] = useState<AnalysisResult>(initialAnalysis)
   const [selectedActor, setSelectedActor] = useState(initialAnalysis.candidates[0]?.actor)
-  const [connectionsOpen, setConnectionsOpen] = useState(true)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [aiProvider, setAiProvider] = useState<AiProvider>('none')
   const [aiCredential, setAiCredential] = useState('')
   const [commandAdapter, setCommandAdapter] = useState('claude -p "summarize this evidence as JSON"')
@@ -37,11 +45,10 @@ function App() {
     analysis.candidates[0]
   const isLoading = status === 'loading'
   const repoLabel = `${analysis.repo.owner}/${analysis.repo.repo}`
-  const adapterState = getAdapterState(token, aiProvider, aiCredential, commandAdapter)
 
   async function runLiveAnalysis() {
     setStatus('loading')
-    setStatusText('Parsing repository and collecting public GitHub evidence...')
+    setStatusText('Parsing repository and collecting public GitHub evidence…')
 
     try {
       const repo = parseGitHubRepoUrl(repoInput)
@@ -50,6 +57,7 @@ function App() {
         result.repo,
         result.evidence,
         'live',
+        result.recognition,
         result.warnings,
       )
 
@@ -57,9 +65,11 @@ function App() {
       setSelectedActor(nextAnalysis.candidates[0]?.actor)
       setStatus('ready')
       setStatusText(
-        nextAnalysis.evidence.length
-          ? `Analyzed ${nextAnalysis.evidence.length} public evidence items from ${repo.owner}/${repo.repo}.`
-          : `Connected to ${repo.owner}/${repo.repo}, but GitHub returned no usable recent evidence.`,
+        nextAnalysis.candidates.length
+          ? `Found ${nextAnalysis.candidates.length} under-credited contributor${
+              nextAnalysis.candidates.length === 1 ? '' : 's'
+            } from ${nextAnalysis.summary.evidenceCount} events in the last ${WINDOW_DAYS} days.`
+          : `Scanned ${repo.owner}/${repo.repo}: ${nextAnalysis.summary.evidenceCount} events in the last ${WINDOW_DAYS} days, but only well-known maintainers were active. Nothing under-credited to surface.`,
       )
     } catch (error) {
       setStatus('error')
@@ -68,222 +78,237 @@ function App() {
   }
 
   function runDemoAnalysis() {
-    const nextAnalysis = analyzeRecognitionDebt(demoRepo, demoEvidence, 'demo', [
-      'Demo mode uses synthetic public-style evidence so you can inspect the recognition model without spending GitHub API quota.',
-    ])
+    const nextAnalysis = runDemo()
     setAnalysis(nextAnalysis)
     setSelectedActor(nextAnalysis.candidates[0]?.actor)
     setStatus('ready')
     setStatusText('Demo analysis loaded')
+    setSettingsOpen(false)
+  }
+
+  function onSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    if (!isLoading) void runLiveAnalysis()
   }
 
   return (
-    <main className="app-shell">
-      <a className="skip-link" href="#dossier">Skip to dossier</a>
-      <CommandBar
+    <div className="page">
+      <a className="skip-link" href="#report">Skip to report</a>
+
+      <Header
         repoInput={repoInput}
         token={token}
-        status={status}
-        providerLabel={providerLabels[aiProvider]}
-        connectionsOpen={connectionsOpen}
         isLoading={isLoading}
+        settingsOpen={settingsOpen}
         onRepoChange={setRepoInput}
-        onTokenChange={setToken}
-        onAnalyze={runLiveAnalysis}
+        onSubmit={onSubmit}
         onDemo={runDemoAnalysis}
-        onToggleConnections={() => setConnectionsOpen((open) => !open)}
+        onToggleSettings={() => setSettingsOpen((open) => !open)}
       />
 
-      <section className="intro-strip" aria-label="Product summary">
-        <div>
-          <p className="eyebrow">Recognition intelligence</p>
-          <h1>Trace the public evidence behind quiet contribution.</h1>
-        </div>
-        <p>
-          Silent Heroes reads GitHub activity like a case file: candidates, roles,
-          confidence, and the links that justify every claim. No repo install. No
-          hidden surveillance.
-        </p>
-      </section>
+      {settingsOpen && (
+        <SettingsPanel
+          token={token}
+          aiProvider={aiProvider}
+          aiCredential={aiCredential}
+          commandAdapter={commandAdapter}
+          onTokenChange={setToken}
+          onProviderChange={setAiProvider}
+          onCredentialChange={setAiCredential}
+          onCommandChange={setCommandAdapter}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
 
-      <section className="console-layout">
-        <aside className="candidate-rail" aria-label="Recognition candidates">
-          <div className="rail-heading">
-            <span>ranked candidates</span>
-            <strong>{analysis.candidates.length}</strong>
-          </div>
-          <div className="candidate-list">
-            {analysis.candidates.length ? (
-              analysis.candidates.map((candidate, index) => (
-                <CandidateCard
-                  key={candidate.actor}
-                  candidate={candidate}
-                  index={index + 1}
-                  isSelected={candidate.actor === selectedCandidate?.actor}
-                  onSelect={() => setSelectedActor(candidate.actor)}
-                />
-              ))
+      <main className="shell">
+        <SummaryBar analysis={analysis} status={status} statusText={statusText} repoLabel={repoLabel} />
+
+        <section id="report" className="workspace" aria-label="Recognition report">
+          <aside className="people" aria-label="People to review">
+            <div className="people-head">
+              <h2>People to review</h2>
+              <span className="count">{analysis.candidates.length}</span>
+            </div>
+            <p className="people-sub">Ranked by under-credit signal. Highest first.</p>
+            <div className="people-list">
+              {analysis.candidates.length ? (
+                analysis.candidates.map((candidate, index) => (
+                  <PersonRow
+                    key={candidate.actor}
+                    candidate={candidate}
+                    index={index + 1}
+                    isSelected={candidate.actor === selectedCandidate?.actor}
+                    onSelect={() => setSelectedActor(candidate.actor)}
+                  />
+                ))
+              ) : (
+                <p className="empty">
+                  No under-credited contributor cleared the bar in the last {analysis.windowDays} days.
+                  That’s expected when only well-known maintainers were recently active.
+                </p>
+              )}
+            </div>
+          </aside>
+
+          <section className="detail" aria-label="Selected person report">
+            {selectedCandidate ? (
+              <PersonDetail candidate={selectedCandidate} analysis={analysis} />
             ) : (
-              <div className="empty-state compact">
-                No candidates crossed the evidence threshold. Try demo mode, add a
-                token, or scan a repo with recent public activity.
+              <div className="detail-empty">
+                <h2>No under-credited contributors surfaced</h2>
+                <p>
+                  Across the last {analysis.windowDays} days, {repoLabel} showed{' '}
+                  {analysis.summary.evidenceCount} public events from{' '}
+                  {analysis.summary.contributorCount} people — but everyone active is either the owner
+                  or an established top committer. The model stays quiet rather than invent a hero.
+                </p>
+                <p className="detail-empty-hint">
+                  Try a larger or more community-driven repo, or explore the model with the demo.
+                </p>
+                <button type="button" className="btn-accent" onClick={runDemoAnalysis}>
+                  Load demo
+                </button>
               </div>
             )}
-          </div>
-        </aside>
-
-        <section id="dossier" className="dossier-panel" aria-label="Selected candidate dossier">
-          <div className="dossier-header">
-            <div>
-              <p className="eyebrow">current dossier</p>
-              <h2>{selectedCandidate ? `@${selectedCandidate.actor}` : 'No candidate selected'}</h2>
-              <p>{selectedCandidate?.rationale ?? 'Scan a repository to create a recognition dossier.'}</p>
-            </div>
-            {selectedCandidate && (
-              <ConfidenceChip confidence={selectedCandidate.confidence} />
-            )}
-          </div>
-
-          <MetricDeck analysis={analysis} />
-
-          <div className="dossier-grid">
-            <div className="evidence-map panel-card">
-              <div className="section-heading slim">
-                <p className="eyebrow">influence trace</p>
-                <h3>Evidence → person → role</h3>
-              </div>
-              <EvidenceBeams candidate={selectedCandidate} />
-            </div>
-            <ScanPipeline status={status} text={statusText} warnings={analysis.warnings} mode={analysis.mode} />
-          </div>
-
-          <section className="timeline-section panel-card">
-            <div className="section-heading">
-              <p className="eyebrow">evidence timeline</p>
-              <h3>Every claim remains attached to public links</h3>
-            </div>
-            <EvidenceTimeline evidence={analysis.evidence} selectedActor={selectedCandidate?.actor} />
           </section>
         </section>
 
-        <aside className="inspector-panel" aria-label="Share and connections inspector">
-          <AwardPreview candidate={selectedCandidate} analysis={analysis} />
-          <ConnectionPanel
-            open={connectionsOpen}
-            token={token}
-            aiProvider={aiProvider}
-            aiCredential={aiCredential}
-            commandAdapter={commandAdapter}
-            adapterState={adapterState}
-            onTokenChange={setToken}
-            onProviderChange={setAiProvider}
-            onCredentialChange={setAiCredential}
-            onCommandChange={setCommandAdapter}
-          />
-          <section className="method-card">
-            <p className="eyebrow">method</p>
-            <h3>Scores stay deterministic.</h3>
-            <p>
-              AI adapters are designed for evidence-cited summarization only. The
-              recognition score, confidence label, and source links stay grounded in
-              the local TypeScript attribution core.
-            </p>
-          </section>
-        </aside>
-      </section>
-
-      <footer className="footer-strip">
-        <span>{repoLabel}</span>
-        <span>{formatDate(analysis.generatedAt)}</span>
-        <span>
-          {analysis.mode === 'live'
-            ? 'Live MVP window: latest PRs, issues, commits, review/file details.'
-            : 'Demo evidence: synthetic public-style events.'}
-        </span>
-      </footer>
-    </main>
+        <footer className="footer">
+          <span>{repoLabel}</span>
+          <span>Generated {formatDate(analysis.generatedAt)}</span>
+          <span>
+            {analysis.mode === 'live'
+              ? `Last ${analysis.windowDays} days · recognition-adjusted · owners & top committers excluded`
+              : 'Demo evidence: synthetic public-style events'}
+          </span>
+          <span className="footer-note">Local-first · no telemetry · evidence opens on github.com</span>
+        </footer>
+      </main>
+    </div>
   )
 }
 
-function CommandBar({
+function Header({
   repoInput,
   token,
-  status,
-  providerLabel,
-  connectionsOpen,
   isLoading,
+  settingsOpen,
   onRepoChange,
-  onTokenChange,
-  onAnalyze,
+  onSubmit,
   onDemo,
-  onToggleConnections,
+  onToggleSettings,
 }: {
   repoInput: string
   token: string
-  status: LoadState
-  providerLabel: string
-  connectionsOpen: boolean
   isLoading: boolean
+  settingsOpen: boolean
   onRepoChange: (value: string) => void
-  onTokenChange: (value: string) => void
-  onAnalyze: () => void
+  onSubmit: (event: React.FormEvent) => void
   onDemo: () => void
-  onToggleConnections: () => void
+  onToggleSettings: () => void
 }) {
   return (
-    <header className="command-bar">
-      <div className="brand-lockup">
-        <span className="brand-mark">SH</span>
-        <div>
+    <header className="topbar">
+      <div className="brand">
+        <span className="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3l2.4 5 5.6.6-4.1 3.8 1.2 5.6L12 20l-5.1 2 1.2-5.6L4 12.6l5.6-.6z" />
+          </svg>
+        </span>
+        <div className="brand-text">
           <strong>Silent Heroes</strong>
-          <small>public attribution console</small>
+          <small>public recognition report</small>
         </div>
       </div>
-      <label className="repo-field" htmlFor="repo-url">
-        <span>repository</span>
+
+      <form className="repo-form" onSubmit={onSubmit}>
+        <span className="repo-prefix">github.com/</span>
         <input
           id="repo-url"
+          aria-label="GitHub repository URL"
           value={repoInput}
           onChange={(event) => onRepoChange(event.target.value)}
-          placeholder="https://github.com/owner/repo"
+          placeholder="owner/repo"
+          spellCheck={false}
         />
-      </label>
-      <label className="token-field" htmlFor="github-token">
-        <span>github token</span>
-        <input
-          id="github-token"
-          aria-label="Optional GitHub token"
-          value={token}
-          onChange={(event) => onTokenChange(event.target.value)}
-          placeholder="optional"
-          type="password"
-        />
-      </label>
-      <div className="command-status">
-        <StatusPill label={token ? 'GitHub token' : 'Anonymous'} state={token ? 'ok' : 'muted'} />
-        <StatusPill label={providerLabel} state="muted" />
-        <StatusPill label={status === 'loading' ? 'Scanning' : status} state={status === 'error' ? 'warn' : status === 'ready' ? 'ok' : 'muted'} />
-      </div>
-      <div className="command-actions">
-        <button type="button" className="secondary-action" onClick={onToggleConnections}>
-          {connectionsOpen ? 'Hide connectors' : 'Connect'}
+        <button type="submit" className="btn-accent" disabled={isLoading}>
+          {isLoading ? 'Scanning…' : 'Scan repo'}
         </button>
-        <button type="button" className="secondary-action" onClick={onDemo} disabled={isLoading}>
+      </form>
+
+      <div className="topbar-actions">
+        <button type="button" className="btn-ghost" onClick={onDemo} disabled={isLoading}>
           Demo
         </button>
-        <button type="button" className="primary-action" onClick={onAnalyze} disabled={isLoading}>
-          {isLoading ? 'Scanning…' : 'Scan repo'}
+        <button
+          type="button"
+          className={`btn-ghost icon ${settingsOpen ? 'active' : ''} ${token ? 'has-dot' : ''}`}
+          onClick={onToggleSettings}
+          aria-expanded={settingsOpen}
+          aria-label="Settings and connectors"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          <span>Settings</span>
         </button>
       </div>
     </header>
   )
 }
 
-function StatusPill({ label, state }: { label: string; state: 'ok' | 'warn' | 'muted' }) {
-  return <span className={`status-pill ${state}`}>{label}</span>
+function SummaryBar({
+  analysis,
+  status,
+  statusText,
+  repoLabel,
+}: {
+  analysis: AnalysisResult
+  status: LoadState
+  statusText: string
+  repoLabel: string
+}) {
+  const stats = [
+    { label: 'under-credited', value: analysis.candidates.length },
+    { label: `events · ${analysis.windowDays}d`, value: analysis.summary.evidenceCount },
+    { label: 'people active', value: analysis.summary.contributorCount },
+  ]
+  const state = status === 'error' ? 'error' : status === 'loading' ? 'loading' : 'ready'
+
+  return (
+    <section className={`summary ${state}`} aria-label="Scan summary">
+      <div className="summary-lede">
+        <div className="summary-tags">
+          <span className={`mode-tag ${analysis.mode}`}>{analysis.mode === 'live' ? 'Live scan' : 'Demo scan'}</span>
+          <span className="window-tag">last {analysis.windowDays} days · recognition-adjusted</span>
+        </div>
+        <h1>{repoLabel}</h1>
+      </div>
+      <div className="summary-stats">
+        {stats.map((stat) => (
+          <div key={stat.label} className="summary-stat">
+            <strong>{stat.value}</strong>
+            <span>{stat.label}</span>
+          </div>
+        ))}
+      </div>
+      <p className="summary-status" role="status">
+        <span className={`dot ${state}`} aria-hidden="true" />
+        {statusText}
+      </p>
+      {status !== 'error' && analysis.warnings.length > 0 && (
+        <ul className="summary-warnings">
+          {analysis.warnings.slice(0, 2).map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
 }
 
-function CandidateCard({
+function PersonRow({
   candidate,
   index,
   isSelected,
@@ -297,347 +322,260 @@ function CandidateCard({
   return (
     <button
       type="button"
-      className={`candidate-card ${isSelected ? 'selected' : ''}`}
+      className={`person-row ${isSelected ? 'selected' : ''}`}
       onClick={onSelect}
+      aria-pressed={isSelected}
     >
-      <span className="candidate-rank">{String(index).padStart(2, '0')}</span>
-      <span className="candidate-avatar">{initials(candidate.actor)}</span>
-      <span className="candidate-main">
+      <span className="row-rank">{String(index).padStart(2, '0')}</span>
+      <span className="row-body">
         <strong>@{candidate.actor}</strong>
-        <small>{candidate.headline}</small>
-        <span className="role-row">
-          {candidate.roles.slice(0, 3).map((role) => (
-            <em key={role}>{role}</em>
-          ))}
-        </span>
+        <small>{candidate.roles[0]}</small>
       </span>
-      <span className="candidate-score">
-        <strong>{candidate.score}</strong>
-        <ConfidenceChip confidence={candidate.confidence} compact />
+      <span className="row-meta">
+        <b>{candidate.score}</b>
+        <small>{candidate.evidence.length} links</small>
       </span>
     </button>
   )
 }
 
-function ConfidenceChip({ confidence, compact = false }: { confidence: string; compact?: boolean }) {
-  return <span className={`confidence-chip ${confidence.toLowerCase()} ${compact ? 'compact' : ''}`}>{confidence}</span>
-}
-
-function MetricDeck({ analysis }: { analysis: AnalysisResult }) {
-  const metrics = [
-    ['evidence', analysis.summary.evidenceCount.toString()],
-    ['contributors', analysis.summary.contributorCount.toString()],
-    ['debt high', analysis.summary.highestDebtScore.toString()],
-    ['snapshot', formatDate(analysis.generatedAt)],
-  ]
-
-  return (
-    <section className="metric-deck" aria-label="Analysis summary">
-      {metrics.map(([label, value]) => (
-        <article className="metric-card" key={label}>
-          <span>{label}</span>
-          <strong>{value}</strong>
-        </article>
-      ))}
-    </section>
-  )
-}
-
-function ScanPipeline({
-  status,
-  text,
-  warnings,
-  mode,
+function PersonDetail({
+  candidate,
+  analysis,
 }: {
-  status: LoadState
-  text: string
-  warnings: string[]
-  mode: 'demo' | 'live'
+  candidate: RecognitionCandidate
+  analysis: AnalysisResult
 }) {
-  const steps = [
-    'Parse repo URL',
-    'Fetch pull requests',
-    'Collect reviews and files',
-    'Score recognition debt',
-    'Build evidence dossier',
-  ]
-  const activeIndex = status === 'loading' ? 2 : status === 'error' ? 1 : 4
-
   return (
-    <section className={`scan-pipeline panel-card ${status}`}>
-      <div className="section-heading slim">
-        <p className="eyebrow">scan pipeline</p>
-        <h3>{mode === 'live' ? 'Live GitHub evidence' : 'Demo evidence'}</h3>
-      </div>
-      <ol>
-        {steps.map((step, index) => (
-          <li key={step} className={index < activeIndex ? 'done' : index === activeIndex ? status : ''}>
-            <span />
-            <p>{step}</p>
-          </li>
+    <article className="person" key={candidate.actor}>
+      <header className="person-top">
+        <div className="person-id">
+          <span className="avatar">{initials(candidate.actor)}</span>
+          <div>
+            <h2>@{candidate.actor}</h2>
+            <p>{candidate.headline}</p>
+            <span className="footprint">
+              {candidate.stats.allTimeCommits === 0
+                ? 'No commits on the default branch'
+                : `${candidate.stats.allTimeCommits} all-time commit${candidate.stats.allTimeCommits === 1 ? '' : 's'}`}{' '}
+              · low public footprint
+            </span>
+          </div>
+        </div>
+        <div className="person-score">
+          <strong>{candidate.score}</strong>
+          <span>under-credit index</span>
+          <ConfidenceChip confidence={candidate.confidence} />
+        </div>
+      </header>
+
+      <div className="role-tags">
+        {candidate.roles.map((role) => (
+          <span key={role}>{role}</span>
         ))}
-      </ol>
-      <div className="pipeline-status">
-        <strong>{text}</strong>
-        {warnings.length > 0 && (
-          <ul>
-            {warnings.slice(0, 3).map((warning) => (
-              <li key={warning}>{warning}</li>
+      </div>
+
+      <div className="person-actions">
+        <button type="button" className="btn-soft" onClick={() => copyAwardMarkdown(candidate, analysis)}>
+          Copy credit note
+        </button>
+        <button type="button" className="btn-soft" onClick={() => downloadAwardSvg(candidate, analysis)}>
+          Download card (SVG)
+        </button>
+      </div>
+
+      <div className="cards">
+        <section className="card reasons-card">
+          <div className="card-head">
+            <h3>Why review them</h3>
+          </div>
+          <p className="card-lede">{candidate.rationale}</p>
+          <div className="reasons">
+            <div className="reason note">
+              <strong>{candidate.confidence} confidence, not certainty</strong>
+              <p>Treat this as a prompt to review public contribution traces — not an automated award.</p>
+            </div>
+            {candidate.evidence.slice(0, 3).map((item) => (
+              <a className="reason" href={item.url} key={item.id} target="_blank" rel="noopener noreferrer">
+                <span className="reason-kind">{item.kind.replace('_', ' ')}</span>
+                <p>{item.title}</p>
+              </a>
             ))}
-          </ul>
-        )}
+          </div>
+        </section>
+
+        <section className="card facts-card">
+          <div className="card-head">
+            <h3>Activity mix</h3>
+          </div>
+          <CandidateFacts candidate={candidate} />
+        </section>
       </div>
-    </section>
+
+      <section className="card evidence-card">
+        <div className="card-head">
+          <h3>Source links</h3>
+          <span className="card-meta">{candidate.evidence.length} linked items</span>
+        </div>
+        <p className="card-lede">Open the proof before sharing credit.</p>
+        <EvidenceList evidence={analysis.evidence} selectedActor={candidate.actor} />
+      </section>
+    </article>
   )
 }
 
-function EvidenceBeams({ candidate }: { candidate?: RecognitionCandidate }) {
-  if (!candidate) {
-    return <div className="empty-state compact">Select a candidate to see evidence relationships.</div>
-  }
+function CandidateFacts({ candidate }: { candidate: RecognitionCandidate }) {
+  const facts: Array<[string, number]> = [
+    ['Evidence', candidate.stats.totalEvidence],
+    ['Reviews', candidate.stats.reviews],
+    ['Issues', candidate.stats.issues],
+    ['Commits', candidate.stats.commits],
+    ['Merged PRs', candidate.stats.mergedPullRequests],
+    ['Docs touches', candidate.stats.docsTouches],
+    ['Test touches', candidate.stats.testTouches],
+    ['Merges', candidate.stats.merges],
+  ]
+  const visible = facts.filter(([, value]) => value > 0)
 
-  const evidence = candidate.evidence.slice(0, 5)
   return (
-    <div className="beam-map">
-      <svg viewBox="0 0 520 260" role="img" aria-label="Evidence beams map">
-        <defs>
-          <linearGradient id="beam" x1="0" x2="1" y1="0" y2="0">
-            <stop offset="0" stopColor="#6f7780" stopOpacity="0.2" />
-            <stop offset="1" stopColor="#e8b45a" stopOpacity="0.9" />
-          </linearGradient>
-        </defs>
-        {evidence.map((item, index) => {
-          const y = 34 + index * 45
-          return (
-            <g key={item.id}>
-              <path className="beam-line" d={`M 88 ${y} C 190 ${y}, 248 130, 342 130`} />
-              <circle cx="82" cy={y} r="8" />
-            </g>
-          )
-        })}
-        <circle className="beam-person" cx="382" cy="130" r="44" />
-        <text x="382" y="124" textAnchor="middle">@</text>
-        <text x="382" y="146" textAnchor="middle">{initials(candidate.actor)}</text>
-      </svg>
-      <div className="beam-labels">
-        {evidence.map((item) => (
-          <span key={item.id}>{item.kind.replace('_', ' ')}</span>
-        ))}
-      </div>
-    </div>
+    <dl className="facts">
+      {visible.map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }
 
-function EvidenceTimeline({ evidence, selectedActor }: { evidence: EvidenceItem[]; selectedActor?: string }) {
+function EvidenceList({ evidence, selectedActor }: { evidence: EvidenceItem[]; selectedActor?: string }) {
   const visibleEvidence = useMemo(() => {
     const sorted = evidence.slice().sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
     const selected = sorted.filter((item) => item.actor === selectedActor)
     const rest = sorted.filter((item) => item.actor !== selectedActor)
-    return [...selected, ...rest].slice(0, 14)
+    return [...selected, ...rest].slice(0, 12)
   }, [evidence, selectedActor])
 
   if (!visibleEvidence.length) {
-    return <div className="empty-state">No evidence links are available for this scan.</div>
+    return <p className="empty">No evidence links are available for this scan.</p>
   }
 
   return (
-    <div className="timeline">
+    <ul className="evidence">
       {visibleEvidence.map((item, index) => (
-        <a
-          key={item.id}
-          className={`timeline-item ${item.actor === selectedActor ? 'highlighted' : ''}`}
-          href={item.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ '--delay': `${index * 28}ms` } as React.CSSProperties}
-        >
-          <span className="timeline-kind">{item.kind.replace('_', ' ')}</span>
-          <strong>{item.title}</strong>
-          <small>
-            {formatDate(item.createdAt)} · by @{item.actor}
-          </small>
-        </a>
+        <li key={item.id}>
+          <a
+            className={`evidence-item ${item.actor === selectedActor ? 'highlighted' : ''}`}
+            href={item.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ '--delay': `${Math.min(index, 10) * 26}ms` } as React.CSSProperties}
+          >
+            <span className="evidence-kind">{item.kind.replace('_', ' ')}</span>
+            <span className="evidence-title">{item.title}</span>
+            <span className="evidence-meta">
+              {formatDate(item.createdAt)} · @{item.actor}
+            </span>
+            <span className="evidence-arrow" aria-hidden="true">↗</span>
+          </a>
+        </li>
       ))}
-    </div>
+    </ul>
   )
 }
 
-function AwardPreview({
-  candidate,
-  analysis,
-}: {
-  candidate?: RecognitionCandidate
-  analysis: AnalysisResult
-}) {
-  if (!candidate) {
-    return (
-      <section className="award-card panel-card">
-        <p className="eyebrow">share artifact</p>
-        <div className="empty-state compact">Run a scan to generate a shareable recognition card.</div>
-      </section>
-    )
-  }
-
-  return (
-    <section className="award-card panel-card" aria-label="Shareable award preview">
-      <div className="award-frame">
-        <span className="award-kicker">Silent Hero dossier</span>
-        <h2>@{candidate.actor}</h2>
-        <p>{candidate.headline}</p>
-        <div className="award-score">
-          <strong>{candidate.score}</strong>
-          <span>recognition debt</span>
-        </div>
-        <div className="award-actions">
-          <button type="button" onClick={() => copyAwardMarkdown(candidate, analysis)}>
-            Copy credit note
-          </button>
-          <button type="button" onClick={() => downloadAwardSvg(candidate, analysis)}>
-            Download SVG
-          </button>
-        </div>
-        <div className="award-footer">
-          <span>{candidate.confidence} confidence</span>
-          <span>{analysis.repo.owner}/{analysis.repo.repo}</span>
-        </div>
-      </div>
-    </section>
-  )
+function ConfidenceChip({ confidence }: { confidence: string }) {
+  return <span className={`chip ${confidence.toLowerCase()}`}>{confidence} confidence</span>
 }
 
-function ConnectionPanel({
-  open,
+function SettingsPanel({
   token,
   aiProvider,
   aiCredential,
   commandAdapter,
-  adapterState,
   onTokenChange,
   onProviderChange,
   onCredentialChange,
   onCommandChange,
+  onClose,
 }: {
-  open: boolean
   token: string
   aiProvider: AiProvider
   aiCredential: string
   commandAdapter: string
-  adapterState: string
   onTokenChange: (value: string) => void
   onProviderChange: (value: AiProvider) => void
   onCredentialChange: (value: string) => void
   onCommandChange: (value: string) => void
+  onClose: () => void
 }) {
-  if (!open) {
-    return (
-      <section className="connection-panel collapsed panel-card">
-        <p className="eyebrow">connections</p>
-        <strong>{adapterState}</strong>
-        <small>Open the command bar connector to configure GitHub, BYOK, or CLI adapters.</small>
-      </section>
-    )
-  }
-
   return (
-    <section className="connection-panel panel-card">
-      <div className="section-heading slim">
-        <p className="eyebrow">connections</p>
-        <h3>Local-first adapters</h3>
-      </div>
-
-      <ConnectorRow
-        step="01"
-        title="GitHub access"
-        state={token ? 'configured' : 'anonymous'}
-        copy={token ? 'Token lives only in browser memory. Refresh clears it.' : 'Anonymous public scans use GitHub’s low rate limit.'}
-      >
-        <input
-          value={token}
-          onChange={(event) => onTokenChange(event.target.value)}
-          placeholder="ghp_… read-only token, optional"
-          type="password"
-        />
-      </ConnectorRow>
-
-      <ConnectorRow
-        step="02"
-        title="AI provider"
-        state={providerLabels[aiProvider]}
-        copy="AI is summarization-only: cite evidence, preserve confidence, invent nothing."
-      >
-        <select value={aiProvider} onChange={(event) => onProviderChange(event.target.value as AiProvider)}>
-          <option value="none">None — deterministic evidence scoring</option>
-          <option value="openai">OpenAI-compatible / local endpoint</option>
-          <option value="anthropic">Anthropic API key</option>
-          <option value="command">Command adapter</option>
-        </select>
-        <input
-          value={aiCredential}
-          onChange={(event) => onCredentialChange(event.target.value)}
-          placeholder="API key or base URL, kept local to this tab"
-          type="password"
-          disabled={aiProvider === 'none' || aiProvider === 'command'}
-        />
-      </ConnectorRow>
-
-      <ConnectorRow
-        step="03"
-        title="CLI command adapter"
-        state={aiProvider === 'command' ? 'selected' : 'optional'}
-        copy="Browsers cannot spawn local processes. Copy this for the future CLI/local build."
-      >
-        <div className="terminal-card">
-          <code>{commandAdapter}</code>
-          <button type="button" onClick={() => safeCopy(commandAdapter)}>
-            Copy command
+    <div className="settings" role="region" aria-label="Settings and connectors">
+      <div className="settings-inner">
+        <div className="settings-head">
+          <div>
+            <h2>Connectors</h2>
+            <p>Local-first. Keys live in this tab's memory only — a refresh clears them.</p>
+          </div>
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Done
           </button>
         </div>
-        <input
-          value={commandAdapter}
-          onChange={(event) => onCommandChange(event.target.value)}
-          placeholder="claude -p … / codex exec … / ollama run …"
-        />
-      </ConnectorRow>
 
-      <div className="privacy-strip">🔒 Local-first · no telemetry · no storage · evidence opens on github.com</div>
-    </section>
-  )
-}
+        <div className="settings-grid">
+          <label className="field">
+            <span className="field-label">GitHub access token</span>
+            <input
+              value={token}
+              onChange={(event) => onTokenChange(event.target.value)}
+              placeholder="ghp_… read-only, optional"
+              type="password"
+              spellCheck={false}
+            />
+            <small>{token ? 'Token set — higher rate limits.' : 'Anonymous scans use GitHub’s low rate limit.'}</small>
+          </label>
 
-function ConnectorRow({
-  step,
-  title,
-  state,
-  copy,
-  children,
-}: {
-  step: string
-  title: string
-  state: string
-  copy: string
-  children: React.ReactNode
-}) {
-  return (
-    <article className="connector-row">
-      <div className="connector-meta">
-        <span>{step}</span>
-        <div>
-          <strong>{title}</strong>
-          <small>{copy}</small>
+          <label className="field">
+            <span className="field-label">AI provider</span>
+            <select value={aiProvider} onChange={(event) => onProviderChange(event.target.value as AiProvider)}>
+              <option value="none">None — deterministic scoring</option>
+              <option value="openai">OpenAI-compatible / local endpoint</option>
+              <option value="anthropic">Anthropic API key</option>
+              <option value="command">Command adapter</option>
+            </select>
+            <input
+              value={aiCredential}
+              onChange={(event) => onCredentialChange(event.target.value)}
+              placeholder="API key or base URL"
+              type="password"
+              disabled={aiProvider === 'none' || aiProvider === 'command'}
+            />
+            <small>Summarization-only: cite evidence, preserve confidence, invent nothing.</small>
+          </label>
+
+          <label className="field">
+            <span className="field-label">CLI command adapter</span>
+            <div className="terminal">
+              <code>{commandAdapter}</code>
+              <button type="button" onClick={() => void safeCopy(commandAdapter)}>
+                Copy
+              </button>
+            </div>
+            <input
+              value={commandAdapter}
+              onChange={(event) => onCommandChange(event.target.value)}
+              placeholder="claude -p … / codex exec … / ollama run …"
+              spellCheck={false}
+            />
+            <small>Browsers can’t spawn processes — copy this for the local/CLI build.</small>
+          </label>
         </div>
-        <em>{state}</em>
       </div>
-      <div className="connector-controls">{children}</div>
-    </article>
+    </div>
   )
-}
-
-function getAdapterState(token: string, aiProvider: AiProvider, aiCredential: string, commandAdapter: string) {
-  const gitHub = token ? 'GitHub token configured' : 'Anonymous GitHub'
-  const ai = aiProvider === 'none' ? 'no AI' : aiProvider === 'command' ? `CLI: ${commandAdapter.split(' ')[0]}` : aiCredential ? `${providerLabels[aiProvider]} configured` : `${providerLabels[aiProvider]} missing key`
-  return `${gitHub} · ${ai}`
 }
 
 function initials(actor: string): string {
@@ -693,16 +631,16 @@ async function safeCopy(value: string) {
 
 function downloadAwardSvg(candidate: RecognitionCandidate, analysis: AnalysisResult) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <rect width="1200" height="630" fill="#0b0d0e"/>
-  <rect x="48" y="48" width="1104" height="534" rx="28" fill="#111519" stroke="#2a3036" stroke-width="2"/>
-  <path d="M72 94 H1128" stroke="#e8b45a" stroke-opacity="0.8" stroke-width="3"/>
-  <text x="86" y="126" fill="#e8b45a" font-size="24" font-family="Menlo, monospace" font-weight="700" letter-spacing="5">SILENT HERO DOSSIER</text>
-  <text x="86" y="242" fill="#eef0f2" font-size="74" font-family="Georgia, serif">@${escapeXml(candidate.actor)}</text>
-  <text x="88" y="306" fill="#a8afb7" font-size="30" font-family="Arial, sans-serif">${escapeXml(candidate.roles.join(' / '))}</text>
-  <text x="88" y="420" fill="#e8b45a" font-size="104" font-family="Arial, sans-serif" font-weight="900">${candidate.score}</text>
-  <text x="250" y="406" fill="#a8afb7" font-size="25" font-family="Menlo, monospace">recognition debt score</text>
-  <text x="88" y="512" fill="#d8dcdf" font-size="26" font-family="Arial, sans-serif">Public evidence suggests this person helped shape ${escapeXml(analysis.repo.owner)}/${escapeXml(analysis.repo.repo)}.</text>
-  <text x="88" y="552" fill="#7f8790" font-size="21" font-family="Menlo, monospace">${candidate.confidence} confidence · evidence-backed attribution candidate</text>
+  <rect width="1200" height="630" fill="#ffffff"/>
+  <rect x="40" y="40" width="1120" height="550" rx="24" fill="#fbfbfa" stroke="#e7e7e6" stroke-width="2"/>
+  <rect x="40" y="40" width="8" height="550" rx="4" fill="#059669"/>
+  <text x="88" y="118" fill="#059669" font-size="22" font-family="'JetBrains Mono', monospace" font-weight="600" letter-spacing="3">SILENT HERO</text>
+  <text x="88" y="232" fill="#18181b" font-size="76" font-family="'Bricolage Grotesque', Georgia, serif" font-weight="600">@${escapeXml(candidate.actor)}</text>
+  <text x="90" y="292" fill="#5b5b60" font-size="28" font-family="'Hanken Grotesk', Arial, sans-serif">${escapeXml(candidate.roles.join(' · '))}</text>
+  <text x="88" y="430" fill="#059669" font-size="112" font-family="'Bricolage Grotesque', Georgia, serif" font-weight="700">${candidate.score}</text>
+  <text x="290" y="416" fill="#8a8a90" font-size="24" font-family="'JetBrains Mono', monospace">under-credit index</text>
+  <text x="88" y="512" fill="#5b5b60" font-size="26" font-family="'Hanken Grotesk', Arial, sans-serif">Public evidence suggests this person helped shape ${escapeXml(analysis.repo.owner)}/${escapeXml(analysis.repo.repo)}.</text>
+  <text x="88" y="552" fill="#8a8a90" font-size="20" font-family="'JetBrains Mono', monospace">${candidate.confidence} confidence · evidence-backed attribution candidate</text>
 </svg>`
   const blob = new Blob([svg], { type: 'image/svg+xml' })
   const url = URL.createObjectURL(blob)

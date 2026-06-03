@@ -1,9 +1,20 @@
-import type { EvidenceItem, RepoRef } from './types'
+import type { EvidenceItem, RecognitionGraph, RepoRef } from './types'
 
 export const demoRepo: RepoRef = {
   owner: 'silent-labs',
   repo: 'atlas',
   url: 'https://github.com/silent-labs/atlas',
+}
+
+// niko-ray is the project's recognized maintainer (top committer), so the model
+// discounts them and lets the genuinely overlooked contributors rise instead.
+export const demoRecognition: RecognitionGraph = {
+  ownerLogin: 'silent-labs',
+  totalContributions: 820,
+  contributors: {
+    'niko-ray': { contributions: 612, rank: 1 },
+    'ori-stack': { contributions: 180, rank: 2 },
+  },
 }
 
 export const demoEvidence: EvidenceItem[] = [

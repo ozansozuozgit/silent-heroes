@@ -5,8 +5,19 @@ import type {
   ContributorStats,
   EvidenceItem,
   RecognitionCandidate,
+  RecognitionGraph,
   RepoRef,
 } from './types'
+
+/** Trailing window the report covers. Stated to the user so the population is unambiguous. */
+export const WINDOW_DAYS = 120
+
+const DAY_MS = 86_400_000
+
+/** Below this recognition factor a person counts as "not already credited". */
+const RECOGNITION_GATE = 0.45
+/** Minimum raw under-credit value to surface at all. */
+const SCORE_GATE = 8
 
 const rolePriority: ContributorRole[] = [
   'Review Signal',
@@ -18,68 +29,114 @@ const rolePriority: ContributorRole[] = [
   'Code Steward',
 ]
 
+const emptyRecognition: RecognitionGraph = {
+  ownerLogin: '',
+  totalContributions: 1,
+  contributors: {},
+}
+
 export function analyzeRecognitionDebt(
   repo: RepoRef,
   evidence: EvidenceItem[],
   mode: 'demo' | 'live',
+  recognition: RecognitionGraph = emptyRecognition,
   warnings: string[] = [],
+  now: number = Date.now(),
 ): AnalysisResult {
-  const grouped = new Map<string, EvidenceItem[]>()
+  // 1. Pin a stable, stated window. Filter by event date, not "recently updated".
+  const inWindow = evidence.filter((item) => {
+    const t = new Date(item.createdAt).getTime()
+    return !Number.isNaN(t) && now - t <= WINDOW_DAYS * DAY_MS
+  })
 
-  evidence.forEach((item) => {
+  // 2. Group in-window evidence per contributor (excluding bots/ghosts).
+  const grouped = new Map<string, EvidenceItem[]>()
+  inWindow.forEach((item) => {
     if (isIgnoredActor(item.actor)) return
     const actorEvidence = grouped.get(item.actor) ?? []
     actorEvidence.push(item)
     grouped.set(item.actor, actorEvidence)
   })
 
-  const candidates = [...grouped.entries()]
-    .map(([actor, actorEvidence]) => buildCandidate(actor, actorEvidence))
-    .filter((candidate) => candidate.score >= 22)
-    .sort((a, b) => b.score - a.score)
+  // 3. Build + gate candidates, then rank by raw under-credit.
+  const ranked = [...grouped.entries()]
+    .map(([actor, actorEvidence]) => buildCandidate(actor, actorEvidence, recognition))
+    .filter((candidate) => candidate.eligible)
+    .sort((a, b) => b.rawScore - a.rawScore)
     .slice(0, 6)
+
+  // 4. Normalize the display score relative to the strongest signal in this scan.
+  const topRaw = ranked[0]?.rawScore ?? 1
+  const candidates: RecognitionCandidate[] = ranked.map((candidate) => ({
+    actor: candidate.actor,
+    score: Math.max(1, Math.round((candidate.rawScore / topRaw) * 100)),
+    confidence: candidate.confidence,
+    roles: candidate.roles,
+    headline: candidate.headline,
+    rationale: candidate.rationale,
+    stats: candidate.stats,
+    recognitionFactor: candidate.recognitionFactor,
+    evidence: candidate.evidence,
+  }))
 
   return {
     repo,
-    generatedAt: new Date().toISOString(),
+    generatedAt: new Date(now).toISOString(),
     mode,
+    windowDays: WINDOW_DAYS,
     candidates,
-    evidence: evidence
+    evidence: inWindow
       .slice()
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      ),
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     warnings,
     summary: {
-      evidenceCount: evidence.length,
+      evidenceCount: inWindow.length,
       contributorCount: grouped.size,
       highestDebtScore: candidates[0]?.score ?? 0,
     },
   }
 }
 
-export function scoreContributor(stats: ContributorStats): number {
-  const influence =
-    stats.reviews * 18 +
-    stats.issues * 6 +
-    stats.merges * 12 +
-    stats.commits * 8 +
-    stats.docsTouches * 5 +
-    stats.testTouches * 5
+/** Gentle scaling so one heavy dimension (e.g. a maintainer's review volume) can't dominate. */
+function damped(value: number, weight: number): number {
+  return value > 0 ? weight * Math.sqrt(value) : 0
+}
 
-  const spotlight = stats.mergedPullRequests * 14
-  const quietWorkBonus =
-    stats.reviews >= 2 || stats.issues >= 3 || stats.merges >= 1 ? 14 : 0
-  const breadthBonus =
-    [stats.reviews, stats.issues, stats.commits, stats.docsTouches, stats.testTouches]
-      .filter((value) => value > 0).length * 4
-  const underCreditAdjustment = Math.max(0, influence - spotlight) * 0.42
+/**
+ * 0 = invisible (never authored a commit on the default branch),
+ * 1 = the face of the project (owner, or a top-3 all-time committer).
+ */
+export function recognitionFactor(actor: string, recognition: RecognitionGraph): number {
+  const login = actor.toLowerCase()
+  if (recognition.ownerLogin && login === recognition.ownerLogin.toLowerCase()) return 1
 
-  return Math.min(
-    100,
-    Math.round(influence * 0.45 + underCreditAdjustment + quietWorkBonus + breadthBonus),
-  )
+  const entry = recognition.contributors[login]
+  if (!entry) return 0
+
+  const share = entry.contributions / (recognition.totalContributions || 1)
+  const rankFactor = entry.rank <= 3 ? 0.85 : entry.rank <= 10 ? 0.5 : 0.2
+  return Math.min(1, Math.max(rankFactor, share * 4))
+}
+
+/** Raw under-credit signal: collaborative contribution, discounted by how recognized they already are. */
+export function underCreditScore(stats: ContributorStats, recognition: number): number {
+  const contribution =
+    damped(stats.reviews, 6) +
+    damped(stats.issues, 4) +
+    damped(stats.docsTouches, 4) +
+    damped(stats.testTouches, 4) +
+    damped(stats.commits, 3) +
+    damped(stats.merges, 2)
+
+  const breadth = [
+    stats.reviews,
+    stats.issues,
+    stats.commits,
+    stats.docsTouches,
+    stats.testTouches,
+  ].filter((value) => value > 0).length
+
+  return contribution * (1 - recognition) * (1 + 0.12 * Math.max(0, breadth - 1))
 }
 
 export function classifyRoles(
@@ -106,29 +163,46 @@ export function classifyRoles(
   return rolePriority.filter((role) => roles.has(role)).slice(0, 4)
 }
 
+type ScoredCandidate = RecognitionCandidate & { rawScore: number; eligible: boolean }
+
 function buildCandidate(
   actor: string,
   evidence: EvidenceItem[],
-): RecognitionCandidate {
-  const stats = getContributorStats(actor, evidence)
-  const score = scoreContributor(stats)
+  recognition: RecognitionGraph,
+): ScoredCandidate {
+  const allTimeCommits = recognition.contributors[actor.toLowerCase()]?.contributions ?? 0
+  const stats = getContributorStats(actor, evidence, allTimeCommits)
+  const rf = recognitionFactor(actor, recognition)
+  const rawScore = underCreditScore(stats, rf)
   const roles = classifyRoles(stats, evidence)
   const confidence = getConfidence(stats, evidence)
 
+  const breadth = [
+    stats.reviews,
+    stats.issues,
+    stats.commits,
+    stats.docsTouches,
+    stats.testTouches,
+  ].filter((value) => value > 0).length
+
+  // Gates: real, repeated, multi-faceted work from someone not already in the spotlight.
+  const eligible =
+    stats.totalEvidence >= 2 && breadth >= 2 && rf < RECOGNITION_GATE && rawScore >= SCORE_GATE
+
   return {
     actor,
-    score,
+    score: 0,
+    rawScore,
+    eligible,
     confidence,
     roles,
     headline: getHeadline(roles),
     rationale: getRationale(stats, roles),
     stats,
+    recognitionFactor: rf,
     evidence: evidence
       .slice()
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      )
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 5),
   }
 }
@@ -136,6 +210,7 @@ function buildCandidate(
 function getContributorStats(
   actor: string,
   evidence: EvidenceItem[],
+  allTimeCommits: number,
 ): ContributorStats {
   const stats: ContributorStats = {
     actor,
@@ -147,6 +222,7 @@ function getContributorStats(
     docsTouches: 0,
     testTouches: 0,
     totalEvidence: evidence.length,
+    allTimeCommits,
   }
 
   evidence.forEach((item) => {
@@ -205,21 +281,24 @@ function getRationale(
   const signals = [
     stats.reviews ? `${stats.reviews} review signal${plural(stats.reviews)}` : '',
     stats.issues ? `${stats.issues} issue-origin signal${plural(stats.issues)}` : '',
+    stats.testTouches ? `${stats.testTouches} test touch${stats.testTouches === 1 ? '' : 'es'}` : '',
+    stats.docsTouches ? `${stats.docsTouches} docs touch${stats.docsTouches === 1 ? '' : 'es'}` : '',
     stats.commits ? `${stats.commits} commit signal${plural(stats.commits)}` : '',
-    stats.merges ? `${stats.merges} merge signal${plural(stats.merges)}` : '',
   ].filter(Boolean)
 
-  return `Public evidence suggests ${stats.actor} may be under-credited as a ${roles.join(
+  const footprint =
+    stats.allTimeCommits > 0
+      ? `holds only ${stats.allTimeCommits} all-time commit${plural(stats.allTimeCommits)} on the default branch`
+      : 'has authored no commits on the default branch'
+
+  return `Active in the last ${WINDOW_DAYS} days as a ${roles.join(
     ' / ',
-  )}: ${signals.join(', ') || 'repeated maintenance work'} with ${stats.mergedPullRequests} authored merged PR${plural(
-    stats.mergedPullRequests,
-  )}.`
+  )} — ${signals.join(', ') || 'repeated maintenance work'} — yet ${footprint}, so this work is easy to overlook.`
 }
 
 function plural(value: number): string {
   return value === 1 ? '' : 's'
 }
-
 
 export function isIgnoredActor(actor: string): boolean {
   const normalized = actor.trim().toLowerCase()
