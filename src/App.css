@@ -437,6 +437,122 @@ select:focus {
   background: var(--danger);
 }
 
+.cached-tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-ring);
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+.refresh-btn {
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-soft);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+.refresh-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+/* rate limit banner */
+.ratelimit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px 20px;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border: 1px solid #f0d9a8;
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, #fffaf0, var(--surface));
+  box-shadow: var(--shadow-sm);
+}
+.ratelimit-body {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 1 1 380px;
+}
+.ratelimit-clock {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  color: var(--amber);
+  background: #fdf0d6;
+  border: 1px solid #f0d9a8;
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ratelimit-copy strong {
+  display: block;
+  margin-bottom: 3px;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 600;
+}
+.ratelimit-copy p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ratelimit-copy b {
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+}
+.ratelimit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ratelimit-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 15px;
+  border-radius: var(--r);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13.5px;
+  text-decoration: none;
+  background: var(--accent);
+  transition: background 150ms ease;
+}
+.ratelimit-cta:hover {
+  background: var(--accent-strong);
+}
+.ratelimit-dismiss {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.ratelimit-dismiss:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
 /* nominees */
 .nominees {
   margin-top: 16px;

@@ -41,7 +41,7 @@ npm run dev
 
 Open the printed local URL. Hit **Demo** to explore the model offline, or paste any `owner/repo` (or full GitHub URL) and **Scan repo**.
 
-> **Rate limits:** anonymous GitHub allows ~60 requests/hour and a healthy scan uses ~37. Add a read-only token under **Settings → GitHub access token** for comfortable use. The token stays in tab memory only — a refresh clears it.
+> **Rate limits:** GitHub calls run from your browser, so each visitor has their own quota — no shared server limit. Anonymous is ~60 requests/hour per IP and a scan uses ~21, so casual use works; results are cached per session (re-scans cost 0 calls). For heavy use add a read-only token under **Settings → GitHub access token** (5,000/hour). The token stays in tab memory only — a refresh clears it.
 
 ### Scripts
 

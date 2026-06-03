@@ -68,6 +68,20 @@ type GitHubRepo = {
 
 const apiBase = 'https://api.github.com'
 
+/** Thrown when GitHub's rate limit is hit, carrying when it resets (epoch ms). */
+export class RateLimitError extends Error {
+  resetAt: number
+  constructor(resetAt: number) {
+    const minutes = Math.max(1, Math.round((resetAt - Date.now()) / 60_000))
+    super(
+      `GitHub API rate limit reached. It resets in about ${minutes} min. ` +
+        'Add a free read-only token (Settings) for 5,000 requests/hour.',
+    )
+    this.name = 'RateLimitError'
+    this.resetAt = resetAt
+  }
+}
+
 export async function fetchGitHubEvidence(
   repo: RepoRef,
   token?: string,
@@ -116,8 +130,11 @@ export async function fetchGitHubEvidence(
 
   const mergedPulls = (pulls ?? []).filter((pull) => pull.merged_at)
 
+  // File-level detail (for docs/test-touch signals) is the most expensive part of a
+  // scan, so we only enrich a few of the most recent commits to stay well under
+  // GitHub's anonymous rate limit. See README "Rate limits".
   const detailedCommits = await Promise.all(
-    (commits ?? []).slice(0, 12).map(async (commit) => {
+    (commits ?? []).slice(0, 6).map(async (commit) => {
       const detail = await safeRequest<GitHubCommit>(
         client,
         `/repos/${repo.owner}/${repo.repo}/commits/${commit.sha}`,
@@ -136,26 +153,20 @@ export async function fetchGitHubEvidence(
     ...detailedCommits.map((commit) => commitToEvidence(commit)),
   )
 
+  // Reviews are the strongest silent-hero signal; we fetch them for a handful of
+  // recent merged PRs and skip the separate per-PR files call to save requests.
   const reviewResults = await Promise.all(
     mergedPulls.slice(0, 10).map(async (pull) => {
-      const [reviews, files] = await Promise.all([
-        safeRequest<GitHubReview[]>(
-          client,
-          `/repos/${repo.owner}/${repo.repo}/pulls/${pull.number}/reviews?per_page=20`,
-          warnings,
-          `reviews for PR #${pull.number}`,
-        ),
-        safeRequest<GitHubFile[]>(
-          client,
-          `/repos/${repo.owner}/${repo.repo}/pulls/${pull.number}/files?per_page=40`,
-          warnings,
-          `files for PR #${pull.number}`,
-        ),
-      ])
+      const reviews = await safeRequest<GitHubReview[]>(
+        client,
+        `/repos/${repo.owner}/${repo.repo}/pulls/${pull.number}/reviews?per_page=20`,
+        warnings,
+        `reviews for PR #${pull.number}`,
+      )
 
       return (reviews ?? [])
         .filter((review) => Boolean(review.user?.login && review.submitted_at))
-        .map((review) => reviewToEvidence(review, pull, files ?? []))
+        .map((review) => reviewToEvidence(review, pull, []))
     }),
   )
 
@@ -209,10 +220,9 @@ function createClient(token?: string) {
           'GitHub could not find that public repository. Check the URL, or use a token for private repos in a local-only scan.',
         )
       }
-      if (response.status === 403 && remaining === '0') {
-        throw new Error(
-          'GitHub API rate limit is exhausted. Add a read-only token or wait for the limit to reset.',
-        )
+      if ((response.status === 403 || response.status === 429) && remaining === '0') {
+        const reset = Number(response.headers.get('x-ratelimit-reset')) * 1000
+        throw new RateLimitError(Number.isFinite(reset) && reset > 0 ? reset : Date.now() + 3_600_000)
       }
       throw new Error(`${response.status} ${response.statusText}.`)
     }

@@ -3,8 +3,8 @@ import './App.css'
 import { parseGitHubRepoUrl } from './core/githubUrl'
 import { demoEvidence, demoRecognition, demoRepo } from './core/sampleData'
 import { WINDOW_DAYS, analyzeRecognitionDebt } from './core/scoring'
-import type { AnalysisResult, EvidenceItem, RecognitionCandidate } from './core/types'
-import { fetchGitHubEvidence } from './lib/githubClient'
+import type { AnalysisResult, EvidenceItem, GitHubFetchResult, RecognitionCandidate } from './core/types'
+import { RateLimitError, fetchGitHubEvidence } from './lib/githubClient'
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
 type AiProvider = 'none' | 'openai' | 'anthropic' | 'command'
@@ -34,6 +34,29 @@ const REPO_URL = 'https://github.com/ozansozuozgit/silent-heroes'
 // Cohesive chart palette: emerald lead, champagne gold for the celebration, warm supports.
 const MIX_COLORS = ['#059669', '#c79a3b', '#14b8a6', '#84a98c', '#b08968']
 
+// Session cache: re-scanning a repo (or reloading the tab) costs zero GitHub API calls.
+function scanCacheKey(owner: string, repo: string) {
+  return `sh:scan:${owner.toLowerCase()}/${repo.toLowerCase()}`
+}
+function readScanCache(owner: string, repo: string): GitHubFetchResult | null {
+  try {
+    const raw = sessionStorage.getItem(scanCacheKey(owner, repo))
+    return raw ? (JSON.parse(raw) as GitHubFetchResult) : null
+  } catch {
+    return null
+  }
+}
+function writeScanCache(result: GitHubFetchResult) {
+  try {
+    sessionStorage.setItem(
+      scanCacheKey(result.repo.owner, result.repo.repo),
+      JSON.stringify(result),
+    )
+  } catch {
+    // sessionStorage may be unavailable (private mode / quota) — caching is best-effort.
+  }
+}
+
 function App() {
   const [repoInput, setRepoInput] = useState('vitejs/vite')
   const [token, setToken] = useState('')
@@ -42,6 +65,8 @@ function App() {
   const [analysis, setAnalysis] = useState<AnalysisResult>(initialAnalysis)
   const [selectedActor, setSelectedActor] = useState(initialAnalysis.candidates[0]?.actor)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [cached, setCached] = useState(false)
+  const [rateLimitResetAt, setRateLimitResetAt] = useState<number | null>(null)
   const [aiProvider, setAiProvider] = useState<AiProvider>('none')
   const [aiCredential, setAiCredential] = useState('')
   const [commandAdapter, setCommandAdapter] = useState('claude -p "summarize this evidence as JSON"')
@@ -52,33 +77,57 @@ function App() {
   const isLoading = status === 'loading'
   const repoLabel = `${analysis.repo.owner}/${analysis.repo.repo}`
 
-  async function runLiveAnalysis() {
-    setStatus('loading')
-    setStatusText('Parsing repository and collecting public GitHub evidence…')
+  function applyFetchResult(result: GitHubFetchResult, fromCache: boolean) {
+    const nextAnalysis = analyzeRecognitionDebt(
+      result.repo,
+      result.evidence,
+      'live',
+      result.recognition,
+      result.warnings,
+    )
+    setAnalysis(nextAnalysis)
+    setSelectedActor(nextAnalysis.candidates[0]?.actor)
+    setStatus('ready')
+    setCached(fromCache)
+    setRateLimitResetAt(null)
 
+    const label = `${result.repo.owner}/${result.repo.repo}`
+    const found = nextAnalysis.candidates.length
+    const base = found
+      ? `Found ${found} under-credited contributor${found === 1 ? '' : 's'} from ${nextAnalysis.summary.evidenceCount} events in the last ${WINDOW_DAYS} days.`
+      : `Scanned ${label}: ${nextAnalysis.summary.evidenceCount} events in the last ${WINDOW_DAYS} days, but only well-known maintainers were active. Nothing under-credited to surface.`
+    setStatusText(fromCache ? `Loaded ${label} from cache — no GitHub API used. ${base}` : base)
+  }
+
+  async function runLiveAnalysis(force = false) {
+    let repo
     try {
-      const repo = parseGitHubRepoUrl(repoInput)
-      const result = await fetchGitHubEvidence(repo, token.trim() || undefined)
-      const nextAnalysis = analyzeRecognitionDebt(
-        result.repo,
-        result.evidence,
-        'live',
-        result.recognition,
-        result.warnings,
-      )
-
-      setAnalysis(nextAnalysis)
-      setSelectedActor(nextAnalysis.candidates[0]?.actor)
-      setStatus('ready')
-      setStatusText(
-        nextAnalysis.candidates.length
-          ? `Found ${nextAnalysis.candidates.length} under-credited contributor${
-              nextAnalysis.candidates.length === 1 ? '' : 's'
-            } from ${nextAnalysis.summary.evidenceCount} events in the last ${WINDOW_DAYS} days.`
-          : `Scanned ${repo.owner}/${repo.repo}: ${nextAnalysis.summary.evidenceCount} events in the last ${WINDOW_DAYS} days, but only well-known maintainers were active. Nothing under-credited to surface.`,
-      )
+      repo = parseGitHubRepoUrl(repoInput)
     } catch (error) {
       setStatus('error')
+      setRateLimitResetAt(null)
+      setStatusText(error instanceof Error ? error.message : 'Enter a valid GitHub repository.')
+      return
+    }
+
+    if (!force) {
+      const cachedResult = readScanCache(repo.owner, repo.repo)
+      if (cachedResult) {
+        applyFetchResult(cachedResult, true)
+        return
+      }
+    }
+
+    setStatus('loading')
+    setStatusText('Collecting public GitHub evidence…')
+
+    try {
+      const result = await fetchGitHubEvidence(repo, token.trim() || undefined)
+      writeScanCache(result)
+      applyFetchResult(result, false)
+    } catch (error) {
+      setStatus('error')
+      setRateLimitResetAt(error instanceof RateLimitError ? error.resetAt : null)
       setStatusText(error instanceof Error ? error.message : 'Analysis failed.')
     }
   }
@@ -88,8 +137,14 @@ function App() {
     setAnalysis(nextAnalysis)
     setSelectedActor(nextAnalysis.candidates[0]?.actor)
     setStatus('ready')
+    setCached(false)
+    setRateLimitResetAt(null)
     setStatusText('Demo analysis loaded')
     setSettingsOpen(false)
+  }
+
+  function focusToken() {
+    window.setTimeout(() => document.getElementById('gh-token-input')?.focus(), 60)
   }
 
   function onSubmit(event: React.FormEvent) {
@@ -127,7 +182,25 @@ function App() {
       )}
 
       <main className="shell">
-        <ScanLine analysis={analysis} status={status} statusText={statusText} repoLabel={repoLabel} />
+        {rateLimitResetAt !== null && (
+          <RateLimitBanner
+            resetAt={rateLimitResetAt}
+            onAddToken={() => {
+              setSettingsOpen(true)
+              focusToken()
+            }}
+            onDismiss={() => setRateLimitResetAt(null)}
+          />
+        )}
+
+        <ScanLine
+          analysis={analysis}
+          status={status}
+          statusText={statusText}
+          repoLabel={repoLabel}
+          cached={cached}
+          onRefresh={() => void runLiveAnalysis(true)}
+        />
 
         {analysis.candidates.length > 0 ? (
           <Nominees
@@ -269,6 +342,51 @@ function CloneStrip() {
   )
 }
 
+function RateLimitBanner({
+  resetAt,
+  onAddToken,
+  onDismiss,
+}: {
+  resetAt: number
+  onAddToken: () => void
+  onDismiss: () => void
+}) {
+  const secondsLeft = useCountdown(resetAt)
+  const mm = Math.floor(secondsLeft / 60)
+  const ss = String(secondsLeft % 60).padStart(2, '0')
+  const tokenUrl = 'https://github.com/settings/tokens/new?description=Silent%20Heroes'
+
+  return (
+    <section className="ratelimit" role="alert">
+      <div className="ratelimit-body">
+        <span className="ratelimit-clock" aria-hidden="true">{secondsLeft > 0 ? `${mm}:${ss}` : '0:00'}</span>
+        <div className="ratelimit-copy">
+          <strong>GitHub rate limit reached</strong>
+          <p>
+            {secondsLeft > 0 ? (
+              <>Anonymous scans are capped at ~60 requests/hour per visitor — yours resets in <b>{mm}:{ss}</b>. </>
+            ) : (
+              <>The limit just reset — you can scan again now. </>
+            )}
+            A free read-only token lifts this to <b>5,000/hour</b> and stays in this tab only.
+          </p>
+        </div>
+      </div>
+      <div className="ratelimit-actions">
+        <a className="ratelimit-cta" href={tokenUrl} target="_blank" rel="noopener noreferrer">
+          <GitHubMark /> Create a token
+        </a>
+        <button type="button" className="btn-ghost" onClick={onAddToken}>
+          Paste token
+        </button>
+        <button type="button" className="ratelimit-dismiss" onClick={onDismiss} aria-label="Dismiss">
+          ✕
+        </button>
+      </div>
+    </section>
+  )
+}
+
 function GitHubMark() {
   return (
     <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true">
@@ -284,11 +402,15 @@ function ScanLine({
   status,
   statusText,
   repoLabel,
+  cached,
+  onRefresh,
 }: {
   analysis: AnalysisResult
   status: LoadState
   statusText: string
   repoLabel: string
+  cached: boolean
+  onRefresh: () => void
 }) {
   const state = status === 'error' ? 'error' : status === 'loading' ? 'loading' : 'ready'
   return (
@@ -297,6 +419,18 @@ function ScanLine({
         <span className={`mode-tag ${analysis.mode}`}>{analysis.mode === 'live' ? 'Live scan' : 'Demo scan'}</span>
         <strong>{repoLabel}</strong>
         <span className="window-tag">last {analysis.windowDays} days · recognition-adjusted</span>
+        {cached && <span className="cached-tag">cached · 0 API calls</span>}
+        {analysis.mode === 'live' && (
+          <button
+            type="button"
+            className="refresh-btn"
+            onClick={onRefresh}
+            disabled={status === 'loading'}
+            title="Re-scan with a fresh GitHub request"
+          >
+            ↻ Refresh
+          </button>
+        )}
       </div>
       <div className="scanline-stats">
         <span><b>{analysis.candidates.length}</b> under-credited</span>
@@ -775,6 +909,7 @@ function SettingsPanel({
           <label className="field">
             <span className="field-label">GitHub access token</span>
             <input
+              id="gh-token-input"
               value={token}
               onChange={(event) => onTokenChange(event.target.value)}
               placeholder="ghp_… read-only, optional"
@@ -851,6 +986,16 @@ function useCountUp(target: number, resetKey: string): number {
   }, [target, resetKey])
 
   return value
+}
+
+function useCountdown(target: number): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    setNow(Date.now())
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [target])
+  return Math.max(0, Math.round((target - now) / 1000))
 }
 
 function subscribeReducedMotion(listener: () => void) {
