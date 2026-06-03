@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { parseGitHubRepoUrl } from './core/githubUrl'
 import { demoEvidence, demoRecognition, demoRepo } from './core/sampleData'
@@ -27,6 +27,9 @@ function runDemo(): AnalysisResult {
 }
 
 const initialAnalysis = runDemo()
+
+// Cohesive chart palette: emerald lead, champagne gold for the celebration, warm supports.
+const MIX_COLORS = ['#059669', '#c79a3b', '#14b8a6', '#84a98c', '#b08968']
 
 function App() {
   const [repoInput, setRepoInput] = useState('vitejs/vite')
@@ -93,7 +96,7 @@ function App() {
 
   return (
     <div className="page">
-      <a className="skip-link" href="#report">Skip to report</a>
+      <a className="skip-link" href="#stage">Skip to the hero</a>
 
       <Header
         repoInput={repoInput}
@@ -121,57 +124,25 @@ function App() {
       )}
 
       <main className="shell">
-        <SummaryBar analysis={analysis} status={status} statusText={statusText} repoLabel={repoLabel} />
+        <ScanLine analysis={analysis} status={status} statusText={statusText} repoLabel={repoLabel} />
 
-        <section id="report" className="workspace" aria-label="Recognition report">
-          <aside className="people" aria-label="People to review">
-            <div className="people-head">
-              <h2>People to review</h2>
-              <span className="count">{analysis.candidates.length}</span>
-            </div>
-            <p className="people-sub">Ranked by under-credit signal. Highest first.</p>
-            <div className="people-list">
-              {analysis.candidates.length ? (
-                analysis.candidates.map((candidate, index) => (
-                  <PersonRow
-                    key={candidate.actor}
-                    candidate={candidate}
-                    index={index + 1}
-                    isSelected={candidate.actor === selectedCandidate?.actor}
-                    onSelect={() => setSelectedActor(candidate.actor)}
-                  />
-                ))
-              ) : (
-                <p className="empty">
-                  No under-credited contributor cleared the bar in the last {analysis.windowDays} days.
-                  That’s expected when only well-known maintainers were recently active.
-                </p>
-              )}
-            </div>
-          </aside>
+        {analysis.candidates.length > 0 ? (
+          <Nominees
+            candidates={analysis.candidates}
+            selectedActor={selectedCandidate?.actor}
+            onSelect={setSelectedActor}
+          />
+        ) : null}
 
-          <section className="detail" aria-label="Selected person report">
-            {selectedCandidate ? (
-              <PersonDetail candidate={selectedCandidate} analysis={analysis} />
-            ) : (
-              <div className="detail-empty">
-                <h2>No under-credited contributors surfaced</h2>
-                <p>
-                  Across the last {analysis.windowDays} days, {repoLabel} showed{' '}
-                  {analysis.summary.evidenceCount} public events from{' '}
-                  {analysis.summary.contributorCount} people — but everyone active is either the owner
-                  or an established top committer. The model stays quiet rather than invent a hero.
-                </p>
-                <p className="detail-empty-hint">
-                  Try a larger or more community-driven repo, or explore the model with the demo.
-                </p>
-                <button type="button" className="btn-accent" onClick={runDemoAnalysis}>
-                  Load demo
-                </button>
-              </div>
-            )}
-          </section>
-        </section>
+        {selectedCandidate ? (
+          <>
+            <Stage candidate={selectedCandidate} analysis={analysis} />
+            <Charts candidate={selectedCandidate} />
+            <DossierRow candidate={selectedCandidate} analysis={analysis} />
+          </>
+        ) : (
+          <EmptyStage analysis={analysis} repoLabel={repoLabel} onDemo={runDemoAnalysis} />
+        )}
 
         <footer className="footer">
           <span>{repoLabel}</span>
@@ -187,6 +158,8 @@ function App() {
     </div>
   )
 }
+
+/* ------------------------------------------------------------------ header */
 
 function Header({
   repoInput,
@@ -217,7 +190,7 @@ function Header({
         </span>
         <div className="brand-text">
           <strong>Silent Heroes</strong>
-          <small>public recognition report</small>
+          <small>give quiet work its moment</small>
         </div>
       </div>
 
@@ -258,7 +231,9 @@ function Header({
   )
 }
 
-function SummaryBar({
+/* ----------------------------------------------------------- scan line + nominees */
+
+function ScanLine({
   analysis,
   status,
   statusText,
@@ -269,77 +244,345 @@ function SummaryBar({
   statusText: string
   repoLabel: string
 }) {
-  const stats = [
-    { label: 'under-credited', value: analysis.candidates.length },
-    { label: `events · ${analysis.windowDays}d`, value: analysis.summary.evidenceCount },
-    { label: 'people active', value: analysis.summary.contributorCount },
-  ]
   const state = status === 'error' ? 'error' : status === 'loading' ? 'loading' : 'ready'
-
   return (
-    <section className={`summary ${state}`} aria-label="Scan summary">
-      <div className="summary-lede">
-        <div className="summary-tags">
-          <span className={`mode-tag ${analysis.mode}`}>{analysis.mode === 'live' ? 'Live scan' : 'Demo scan'}</span>
-          <span className="window-tag">last {analysis.windowDays} days · recognition-adjusted</span>
-        </div>
-        <h1>{repoLabel}</h1>
+    <section className={`scanline ${state}`} aria-label="Scan summary">
+      <div className="scanline-main">
+        <span className={`mode-tag ${analysis.mode}`}>{analysis.mode === 'live' ? 'Live scan' : 'Demo scan'}</span>
+        <strong>{repoLabel}</strong>
+        <span className="window-tag">last {analysis.windowDays} days · recognition-adjusted</span>
       </div>
-      <div className="summary-stats">
-        {stats.map((stat) => (
-          <div key={stat.label} className="summary-stat">
-            <strong>{stat.value}</strong>
-            <span>{stat.label}</span>
-          </div>
-        ))}
+      <div className="scanline-stats">
+        <span><b>{analysis.candidates.length}</b> under-credited</span>
+        <span><b>{analysis.summary.evidenceCount}</b> events</span>
+        <span><b>{analysis.summary.contributorCount}</b> people active</span>
       </div>
-      <p className="summary-status" role="status">
+      <p className="scanline-status" role="status">
         <span className={`dot ${state}`} aria-hidden="true" />
         {statusText}
       </p>
       {status !== 'error' && analysis.warnings.length > 0 && (
-        <ul className="summary-warnings">
-          {analysis.warnings.slice(0, 2).map((warning) => (
-            <li key={warning}>{warning}</li>
-          ))}
-        </ul>
+        <p className="scanline-warn">{analysis.warnings[0]}</p>
       )}
     </section>
   )
 }
 
-function PersonRow({
-  candidate,
-  index,
-  isSelected,
+const MEDALS = ['gold', 'silver', 'bronze']
+
+function Nominees({
+  candidates,
+  selectedActor,
   onSelect,
 }: {
-  candidate: RecognitionCandidate
-  index: number
-  isSelected: boolean
-  onSelect: () => void
+  candidates: RecognitionCandidate[]
+  selectedActor?: string
+  onSelect: (actor: string) => void
 }) {
   return (
-    <button
-      type="button"
-      className={`person-row ${isSelected ? 'selected' : ''}`}
-      onClick={onSelect}
-      aria-pressed={isSelected}
-    >
-      <span className="row-rank">{String(index).padStart(2, '0')}</span>
-      <span className="row-body">
-        <strong>@{candidate.actor}</strong>
-        <small>{candidate.roles[0]}</small>
-      </span>
-      <span className="row-meta">
-        <b>{candidate.score}</b>
-        <small>{candidate.evidence.length} links</small>
-      </span>
-    </button>
+    <section className="nominees" aria-label="Nominees">
+      <span className="nominees-label">Nominees</span>
+      <div className="nominees-strip">
+        {candidates.map((candidate, index) => (
+          <button
+            key={candidate.actor}
+            type="button"
+            className={`nominee ${candidate.actor === selectedActor ? 'active' : ''}`}
+            onClick={() => onSelect(candidate.actor)}
+            aria-pressed={candidate.actor === selectedActor}
+          >
+            <span className={`nominee-medal ${MEDALS[index] ?? 'plain'}`}>{index + 1}</span>
+            <span className="nominee-id">
+              <strong>@{candidate.actor}</strong>
+              <small>{candidate.roles[0]}</small>
+            </span>
+            <span className="nominee-score">{candidate.score}</span>
+          </button>
+        ))}
+      </div>
+    </section>
   )
 }
 
-function PersonDetail({
+/* ------------------------------------------------------------------- the stage */
+
+function Stage({ candidate, analysis }: { candidate: RecognitionCandidate; analysis: AnalysisResult }) {
+  const reduceMotion = usePrefersReducedMotion()
+
+  return (
+    <section id="stage" className="stage" data-mode={analysis.mode} aria-label="Recognition spotlight">
+      <div className="stage-glow" aria-hidden="true" />
+      {!reduceMotion && <Confetti seed={candidate.actor} />}
+
+      <article className="hero-card" key={candidate.actor}>
+        <header className="hero-card-top">
+          <span className="hero-kicker">
+            <Sparkle /> Silent Hero
+          </span>
+          <span className="hero-repo">{analysis.repo.owner}/{analysis.repo.repo}</span>
+        </header>
+
+        <div className="medallion" aria-hidden="true">
+          <span>{initials(candidate.actor)}</span>
+          <i className="ribbon left" />
+          <i className="ribbon right" />
+        </div>
+
+        <h1 className="hero-name">@{candidate.actor}</h1>
+        <p className="hero-headline">{candidate.headline}</p>
+
+        <div className="hero-roles">
+          {candidate.roles.map((role) => (
+            <span key={role}>{role}</span>
+          ))}
+        </div>
+
+        <div className="hero-score-block">
+          <ScoreRing value={candidate.score} resetKey={candidate.actor} />
+          <div className="hero-score-meta">
+            <ConfidenceRibbon confidence={candidate.confidence} />
+            <p className="hero-footprint">
+              {candidate.stats.allTimeCommits === 0
+                ? 'No commits on the default branch'
+                : `Only ${candidate.stats.allTimeCommits} all-time commit${candidate.stats.allTimeCommits === 1 ? '' : 's'}`}
+            </p>
+            <p className="hero-footprint sub">yet shaped this project from the shadows</p>
+          </div>
+        </div>
+      </article>
+
+      <div className="stage-actions">
+        <button type="button" className="btn-celebrate" onClick={() => copyAwardMarkdown(candidate, analysis)}>
+          Copy credit note
+        </button>
+        <button type="button" className="btn-card" onClick={() => downloadAwardSvg(candidate, analysis)}>
+          Download card
+        </button>
+        <span className="stage-hint">This card is the shareable artifact — give @{candidate.actor} their moment.</span>
+      </div>
+    </section>
+  )
+}
+
+function Sparkle() {
+  return (
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">
+      <path d="M12 2l1.6 6.4L20 10l-6.4 1.6L12 18l-1.6-6.4L4 10l6.4-1.6z" />
+    </svg>
+  )
+}
+
+function Confetti({ seed }: { seed: string }) {
+  // Deterministic spread derived from the actor name, so it replays on each selection.
+  const pieces = useMemo(() => {
+    const base = [...seed].reduce((sum, ch) => sum + ch.charCodeAt(0), 0)
+    return Array.from({ length: 16 }, (_, i) => {
+      const n = (base * (i + 3)) % 100
+      return {
+        left: (n * 1.03) % 100,
+        delay: (n % 9) * 70,
+        duration: 1700 + ((n * 13) % 1400),
+        color: MIX_COLORS[i % MIX_COLORS.length],
+        rotate: (n % 2 === 0 ? 1 : -1) * (120 + (n % 220)),
+        size: 6 + (n % 6),
+      }
+    })
+  }, [seed])
+
+  return (
+    <div className="confetti" key={seed} aria-hidden="true">
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          style={{
+            left: `${p.left}%`,
+            background: p.color,
+            width: `${p.size}px`,
+            height: `${p.size * 1.6}px`,
+            ['--delay' as string]: `${p.delay}ms`,
+            ['--dur' as string]: `${p.duration}ms`,
+            ['--rot' as string]: `${p.rotate}deg`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ScoreRing({ value, resetKey }: { value: number; resetKey: string }) {
+  const display = useCountUp(value, resetKey)
+  const r = 56
+  const c = 2 * Math.PI * r
+  const offset = c * (1 - value / 100)
+
+  return (
+    <div className="score-ring">
+      <svg viewBox="0 0 132 132">
+        <defs>
+          <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#34d399" />
+            <stop offset="0.55" stopColor="#059669" />
+            <stop offset="1" stopColor="#c79a3b" />
+          </linearGradient>
+        </defs>
+        <circle className="ring-track" cx="66" cy="66" r={r} />
+        <circle
+          className="ring-value"
+          cx="66"
+          cy="66"
+          r={r}
+          style={{ strokeDasharray: c, strokeDashoffset: offset }}
+        />
+      </svg>
+      <div className="ring-center">
+        <strong>{display}</strong>
+        <span>under-credit</span>
+      </div>
+    </div>
+  )
+}
+
+function ConfidenceRibbon({ confidence }: { confidence: string }) {
+  return <span className={`ribbon-badge ${confidence.toLowerCase()}`}>{confidence} confidence</span>
+}
+
+/* --------------------------------------------------------------------- charts */
+
+function Charts({ candidate }: { candidate: RecognitionCandidate }) {
+  const s = candidate.stats
+  const mix = [
+    { key: 'Reviews', value: s.reviews, color: MIX_COLORS[0] },
+    { key: 'Issues', value: s.issues, color: MIX_COLORS[1] },
+    { key: 'Tests', value: s.testTouches, color: MIX_COLORS[2] },
+    { key: 'Docs', value: s.docsTouches, color: MIX_COLORS[3] },
+    { key: 'Commits', value: s.commits, color: MIX_COLORS[4] },
+  ].filter((m) => m.value > 0)
+  const total = mix.reduce((sum, m) => sum + m.value, 0) || 1
+
+  const recognition = Math.round(candidate.recognitionFactor * 100)
+  const gap = Math.max(0, candidate.score - recognition)
+
+  return (
+    <section className="charts" aria-label="Contribution charts">
+      <ContributionDonut mix={mix} total={total} />
+      <ActivityBars mix={mix} total={total} />
+      <GapMeter impact={candidate.score} recognition={recognition} gap={gap} actor={candidate.actor} />
+    </section>
+  )
+}
+
+function ContributionDonut({
+  mix,
+  total,
+}: {
+  mix: Array<{ key: string; value: number; color: string }>
+  total: number
+}) {
+  let acc = 0
+  const stops = mix
+    .map((m) => {
+      const start = (acc / total) * 100
+      acc += m.value
+      const end = (acc / total) * 100
+      return `${m.color} ${start}% ${end}%`
+    })
+    .join(', ')
+
+  return (
+    <div className="chart-card">
+      <h3>Where the work went</h3>
+      <div className="donut-wrap">
+        <div className="donut" style={{ background: `conic-gradient(${stops})` }}>
+          <div className="donut-hole">
+            <strong>{total}</strong>
+            <span>signals</span>
+          </div>
+        </div>
+        <ul className="donut-legend">
+          {mix.map((m) => (
+            <li key={m.key}>
+              <i style={{ background: m.color }} />
+              {m.key}
+              <b>{m.value}</b>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
+function ActivityBars({
+  mix,
+  total,
+}: {
+  mix: Array<{ key: string; value: number; color: string }>
+  total: number
+}) {
+  const max = Math.max(...mix.map((m) => m.value), 1)
+  return (
+    <div className="chart-card">
+      <h3>Shape of the contribution</h3>
+      <div className="bars">
+        {mix.map((m) => (
+          <div className="bar-row" key={m.key}>
+            <span className="bar-label">{m.key}</span>
+            <span className="bar-track">
+              <span
+                className="bar-fill"
+                style={{ width: `${(m.value / max) * 100}%`, background: m.color }}
+              />
+            </span>
+            <span className="bar-value">{m.value}</span>
+          </div>
+        ))}
+      </div>
+      <p className="chart-foot">{total} public signals across {mix.length} kinds of work.</p>
+    </div>
+  )
+}
+
+function GapMeter({
+  impact,
+  recognition,
+  gap,
+  actor,
+}: {
+  impact: number
+  recognition: number
+  gap: number
+  actor: string
+}) {
+  return (
+    <div className="chart-card gap-card">
+      <h3>The credit gap</h3>
+      <div className="gap-rows">
+        <div className="gap-row">
+          <span className="gap-key">Behind-the-scenes impact</span>
+          <span className="gap-track">
+            <span className="gap-fill impact" style={{ width: `${impact}%` }} />
+          </span>
+          <span className="gap-num">{impact}</span>
+        </div>
+        <div className="gap-row">
+          <span className="gap-key">Public recognition</span>
+          <span className="gap-track">
+            <span className="gap-fill rec" style={{ width: `${Math.max(recognition, 2)}%` }} />
+          </span>
+          <span className="gap-num">{recognition}</span>
+        </div>
+      </div>
+      <p className="gap-callout">
+        <strong>@{actor}</strong> is under-credited by roughly <b>{gap}</b> points. That gap is exactly
+        what this report exists to close.
+      </p>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------- dossier (why + evidence) */
+
+function DossierRow({
   candidate,
   analysis,
 }: {
@@ -347,105 +590,32 @@ function PersonDetail({
   analysis: AnalysisResult
 }) {
   return (
-    <article className="person" key={candidate.actor}>
-      <header className="person-top">
-        <div className="person-id">
-          <span className="avatar">{initials(candidate.actor)}</span>
-          <div>
-            <h2>@{candidate.actor}</h2>
-            <p>{candidate.headline}</p>
-            <span className="footprint">
-              {candidate.stats.allTimeCommits === 0
-                ? 'No commits on the default branch'
-                : `${candidate.stats.allTimeCommits} all-time commit${candidate.stats.allTimeCommits === 1 ? '' : 's'}`}{' '}
-              · low public footprint
-            </span>
-          </div>
+    <section className="dossier" aria-label="Evidence dossier">
+      <div className="dossier-card why-card">
+        <h3>Why they deserve the spotlight</h3>
+        <p className="why-lede">{candidate.rationale}</p>
+        <div className="why-note">
+          <strong>{candidate.confidence} confidence, not certainty.</strong> Treat this as a prompt to
+          recognize real public work — never an automated award.
         </div>
-        <div className="person-score">
-          <strong>{candidate.score}</strong>
-          <span>under-credit index</span>
-          <ConfidenceChip confidence={candidate.confidence} />
+        <div className="why-reasons">
+          {candidate.evidence.slice(0, 3).map((item) => (
+            <a key={item.id} className="why-reason" href={item.url} target="_blank" rel="noopener noreferrer">
+              <span>{item.kind.replace('_', ' ')}</span>
+              <p>{item.title}</p>
+            </a>
+          ))}
         </div>
-      </header>
-
-      <div className="role-tags">
-        {candidate.roles.map((role) => (
-          <span key={role}>{role}</span>
-        ))}
       </div>
 
-      <div className="person-actions">
-        <button type="button" className="btn-soft" onClick={() => copyAwardMarkdown(candidate, analysis)}>
-          Copy credit note
-        </button>
-        <button type="button" className="btn-soft" onClick={() => downloadAwardSvg(candidate, analysis)}>
-          Download card (SVG)
-        </button>
-      </div>
-
-      <div className="cards">
-        <section className="card reasons-card">
-          <div className="card-head">
-            <h3>Why review them</h3>
-          </div>
-          <p className="card-lede">{candidate.rationale}</p>
-          <div className="reasons">
-            <div className="reason note">
-              <strong>{candidate.confidence} confidence, not certainty</strong>
-              <p>Treat this as a prompt to review public contribution traces — not an automated award.</p>
-            </div>
-            {candidate.evidence.slice(0, 3).map((item) => (
-              <a className="reason" href={item.url} key={item.id} target="_blank" rel="noopener noreferrer">
-                <span className="reason-kind">{item.kind.replace('_', ' ')}</span>
-                <p>{item.title}</p>
-              </a>
-            ))}
-          </div>
-        </section>
-
-        <section className="card facts-card">
-          <div className="card-head">
-            <h3>Activity mix</h3>
-          </div>
-          <CandidateFacts candidate={candidate} />
-        </section>
-      </div>
-
-      <section className="card evidence-card">
-        <div className="card-head">
-          <h3>Source links</h3>
-          <span className="card-meta">{candidate.evidence.length} linked items</span>
+      <div className="dossier-card evidence-card">
+        <div className="evidence-head">
+          <h3>The receipts</h3>
+          <span>{candidate.evidence.length} linked</span>
         </div>
-        <p className="card-lede">Open the proof before sharing credit.</p>
         <EvidenceList evidence={analysis.evidence} selectedActor={candidate.actor} />
-      </section>
-    </article>
-  )
-}
-
-function CandidateFacts({ candidate }: { candidate: RecognitionCandidate }) {
-  const facts: Array<[string, number]> = [
-    ['Evidence', candidate.stats.totalEvidence],
-    ['Reviews', candidate.stats.reviews],
-    ['Issues', candidate.stats.issues],
-    ['Commits', candidate.stats.commits],
-    ['Merged PRs', candidate.stats.mergedPullRequests],
-    ['Docs touches', candidate.stats.docsTouches],
-    ['Test touches', candidate.stats.testTouches],
-    ['Merges', candidate.stats.merges],
-  ]
-  const visible = facts.filter(([, value]) => value > 0)
-
-  return (
-    <dl className="facts">
-      {visible.map(([label, value]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-        </div>
-      ))}
-    </dl>
+      </div>
+    </section>
   )
 }
 
@@ -472,7 +642,7 @@ function EvidenceList({ evidence, selectedActor }: { evidence: EvidenceItem[]; s
             href={item.url}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ '--delay': `${Math.min(index, 10) * 26}ms` } as React.CSSProperties}
+            style={{ ['--delay' as string]: `${Math.min(index, 10) * 26}ms` }}
           >
             <span className="evidence-kind">{item.kind.replace('_', ' ')}</span>
             <span className="evidence-title">{item.title}</span>
@@ -487,9 +657,34 @@ function EvidenceList({ evidence, selectedActor }: { evidence: EvidenceItem[]; s
   )
 }
 
-function ConfidenceChip({ confidence }: { confidence: string }) {
-  return <span className={`chip ${confidence.toLowerCase()}`}>{confidence} confidence</span>
+function EmptyStage({
+  analysis,
+  repoLabel,
+  onDemo,
+}: {
+  analysis: AnalysisResult
+  repoLabel: string
+  onDemo: () => void
+}) {
+  return (
+    <section className="empty-stage" aria-label="No hero surfaced">
+      <div className="empty-stage-glow" aria-hidden="true" />
+      <span className="hero-kicker"><Sparkle /> Silent Hero</span>
+      <h2>The stage stayed empty</h2>
+      <p>
+        Across the last {analysis.windowDays} days, {repoLabel} showed{' '}
+        {analysis.summary.evidenceCount} public events from {analysis.summary.contributorCount} people —
+        but everyone active is already the owner or an established top committer. The model stays quiet
+        rather than crown someone who’s already in the spotlight.
+      </p>
+      <button type="button" className="btn-celebrate" onClick={onDemo}>
+        See a hero in the demo
+      </button>
+    </section>
+  )
 }
+
+/* ------------------------------------------------------------------- settings */
 
 function SettingsPanel({
   token,
@@ -578,6 +773,51 @@ function SettingsPanel({
   )
 }
 
+/* --------------------------------------------------------------------- hooks */
+
+function useCountUp(target: number, resetKey: string): number {
+  const [value, setValue] = useState(target)
+  const frame = useRef(0)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (reduce) {
+      setValue(target)
+      return
+    }
+    const start = performance.now()
+    const duration = 950
+    setValue(0)
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - start) / duration)
+      const eased = 1 - Math.pow(1 - p, 3)
+      setValue(Math.round(target * eased))
+      if (p < 1) frame.current = requestAnimationFrame(tick)
+    }
+    frame.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, resetKey])
+
+  return value
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+    if (!mq) return
+    setReduced(mq.matches)
+    const handler = () => setReduced(mq.matches)
+    mq.addEventListener?.('change', handler)
+    return () => mq.removeEventListener?.('change', handler)
+  }, [])
+  return reduced
+}
+
+/* --------------------------------------------------------------------- utils */
+
 function initials(actor: string): string {
   return actor
     .split(/[-_\s]/)
@@ -631,16 +871,31 @@ async function safeCopy(value: string) {
 
 function downloadAwardSvg(candidate: RecognitionCandidate, analysis: AnalysisResult) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <rect width="1200" height="630" fill="#ffffff"/>
-  <rect x="40" y="40" width="1120" height="550" rx="24" fill="#fbfbfa" stroke="#e7e7e6" stroke-width="2"/>
-  <rect x="40" y="40" width="8" height="550" rx="4" fill="#059669"/>
-  <text x="88" y="118" fill="#059669" font-size="22" font-family="'JetBrains Mono', monospace" font-weight="600" letter-spacing="3">SILENT HERO</text>
-  <text x="88" y="232" fill="#18181b" font-size="76" font-family="'Bricolage Grotesque', Georgia, serif" font-weight="600">@${escapeXml(candidate.actor)}</text>
-  <text x="90" y="292" fill="#5b5b60" font-size="28" font-family="'Hanken Grotesk', Arial, sans-serif">${escapeXml(candidate.roles.join(' · '))}</text>
-  <text x="88" y="430" fill="#059669" font-size="112" font-family="'Bricolage Grotesque', Georgia, serif" font-weight="700">${candidate.score}</text>
-  <text x="290" y="416" fill="#8a8a90" font-size="24" font-family="'JetBrains Mono', monospace">under-credit index</text>
-  <text x="88" y="512" fill="#5b5b60" font-size="26" font-family="'Hanken Grotesk', Arial, sans-serif">Public evidence suggests this person helped shape ${escapeXml(analysis.repo.owner)}/${escapeXml(analysis.repo.repo)}.</text>
-  <text x="88" y="552" fill="#8a8a90" font-size="20" font-family="'JetBrains Mono', monospace">${candidate.confidence} confidence · evidence-backed attribution candidate</text>
+  <defs>
+    <radialGradient id="bg" cx="32%" cy="0%" r="90%">
+      <stop offset="0" stop-color="#10302326"/>
+      <stop offset="1" stop-color="#07140e"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="0.6" stop-color="#059669"/>
+      <stop offset="1" stop-color="#c79a3b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#07140e"/>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="980" cy="150" r="320" fill="#0f3a2a" opacity="0.5"/>
+  <text x="90" y="120" fill="#e6c160" font-size="22" font-family="'JetBrains Mono', monospace" font-weight="600" letter-spacing="4">★ SILENT HERO</text>
+  <text x="88" y="250" fill="#f4f7f4" font-size="92" font-family="'Bricolage Grotesque', Georgia, serif" font-weight="700">@${escapeXml(candidate.actor)}</text>
+  <text x="92" y="312" fill="#a7c2b3" font-size="30" font-family="'Hanken Grotesk', Arial, sans-serif">${escapeXml(candidate.roles.join('  ·  '))}</text>
+  <text x="92" y="372" fill="#cfe0d6" font-size="25" font-family="'Hanken Grotesk', Arial, sans-serif">${escapeXml(candidate.headline)}</text>
+  <circle cx="1010" cy="400" r="118" fill="none" stroke="#143a2b" stroke-width="18"/>
+  <circle cx="1010" cy="400" r="118" fill="none" stroke="url(#ring)" stroke-width="18" stroke-linecap="round"
+    stroke-dasharray="${(2 * Math.PI * 118).toFixed(1)}" stroke-dashoffset="${(2 * Math.PI * 118 * (1 - candidate.score / 100)).toFixed(1)}" transform="rotate(-90 1010 400)"/>
+  <text x="1010" y="412" fill="#f4f7f4" font-size="78" font-family="'Bricolage Grotesque', Georgia, serif" font-weight="700" text-anchor="middle">${candidate.score}</text>
+  <text x="1010" y="452" fill="#8fa99b" font-size="19" font-family="'JetBrains Mono', monospace" text-anchor="middle">under-credit</text>
+  <text x="92" y="492" fill="#8fa99b" font-size="22" font-family="'JetBrains Mono', monospace">${candidate.stats.allTimeCommits === 0 ? 'no commits on default branch' : `only ${candidate.stats.allTimeCommits} all-time commits`} · ${candidate.confidence.toLowerCase()} confidence</text>
+  <text x="92" y="556" fill="#cfe0d6" font-size="24" font-family="'Hanken Grotesk', Arial, sans-serif">Public evidence suggests this person quietly shaped ${escapeXml(analysis.repo.owner)}/${escapeXml(analysis.repo.repo)}.</text>
 </svg>`
   const blob = new Blob([svg], { type: 'image/svg+xml' })
   const url = URL.createObjectURL(blob)
