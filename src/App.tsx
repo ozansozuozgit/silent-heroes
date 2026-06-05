@@ -58,7 +58,7 @@ function writeScanCache(result: GitHubFetchResult) {
 }
 
 function App() {
-  const [repoInput, setRepoInput] = useState('vitejs/vite')
+  const [repoInput, setRepoInput] = useState('nexu-io/open-design')
   const [token, setToken] = useState('')
   const [status, setStatus] = useState<LoadState>('ready')
   const [statusText, setStatusText] = useState('Demo analysis loaded')

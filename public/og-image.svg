@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="Silent Heroes social preview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#06140e"/>
+      <stop offset=".55" stop-color="#0d2a1f"/>
+      <stop offset="1" stop-color="#fbfbfa"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(335 274) rotate(37) scale(360 260)">
+      <stop stop-color="#34d399" stop-opacity=".45"/>
+      <stop offset=".62" stop-color="#34d399" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#34d399" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="star" x1="775" y1="106" x2="1038" y2="486" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f4d46f"/>
+      <stop offset=".42" stop-color="#c79a3b"/>
+      <stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+    <filter id="shadow" x="650" y="50" width="420" height="500" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="34" stdDeviation="26" flood-color="#06140e" flood-opacity=".36"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1200" height="630" fill="url(#glow)"/>
+  <path d="M72 492c153-40 281-35 382 15 99 49 202 43 309-18 78-44 160-55 247-32" fill="none" stroke="#f4f7f4" stroke-opacity=".18" stroke-width="2"/>
+  <path d="M78 535c140-27 249-17 326 31 95 59 203 57 323-5 91-47 187-55 288-24" fill="none" stroke="#c79a3b" stroke-opacity=".18" stroke-width="2"/>
+
+  <g transform="translate(84 76)">
+    <rect x="0" y="0" width="166" height="38" rx="19" fill="#f4f7f4" fill-opacity=".13" stroke="#f4f7f4" stroke-opacity=".24"/>
+    <circle cx="22" cy="19" r="6" fill="#34d399"/>
+    <text x="38" y="25" fill="#f4f7f4" font-family="JetBrains Mono, ui-monospace, Menlo, monospace" font-size="15" font-weight="600" letter-spacing="1.2">LOCAL-FIRST</text>
+
+    <text x="0" y="152" fill="#fbfbfa" font-family="Bricolage Grotesque, Hanken Grotesk, system-ui, sans-serif" font-size="88" font-weight="700" letter-spacing="-3.4">Silent Heroes</text>
+    <text x="2" y="222" fill="#dce9df" font-family="Hanken Grotesk, system-ui, sans-serif" font-size="36" font-weight="600" letter-spacing="-.8">Find the under-credited people</text>
+    <text x="2" y="268" fill="#b9cabf" font-family="Hanken Grotesk, system-ui, sans-serif" font-size="36" font-weight="500" letter-spacing="-.8">quietly helping public GitHub repos ship.</text>
+
+    <g transform="translate(0 342)">
+      <rect x="0" y="0" width="500" height="74" rx="18" fill="#fbfbfa"/>
+      <text x="28" y="46" fill="#06140e" font-family="JetBrains Mono, ui-monospace, Menlo, monospace" font-size="26" font-weight="600">nexu-io/open-design</text>
+      <rect x="376" y="15" width="108" height="44" rx="12" fill="#059669"/>
+      <text x="405" y="44" fill="#fff" font-family="Hanken Grotesk, system-ui, sans-serif" font-size="18" font-weight="700">Scan</text>
+    </g>
+  </g>
+
+  <g filter="url(#shadow)" transform="translate(682 82)">
+    <rect x="0" y="0" width="330" height="420" rx="34" fill="#fbfbfa"/>
+    <rect x="22" y="24" width="286" height="372" rx="24" fill="#06140e"/>
+    <path d="M165 55 194 143l93 1-75 55 28 89-75-53-75 53 28-89-75-55 93-1Z" fill="url(#star)"/>
+    <path d="M236 314c-45 38-114 48-174 24" fill="none" stroke="#f4f7f4" stroke-width="9" stroke-linecap="round" opacity=".95"/>
+    <circle cx="58" cy="350" r="12" fill="#f4f7f4"/>
+    <circle cx="250" cy="350" r="12" fill="#f4f7f4"/>
+    <rect x="58" y="282" width="156" height="10" rx="5" fill="#34d399" opacity=".78"/>
+    <rect x="58" y="302" width="220" height="10" rx="5" fill="#c79a3b" opacity=".78"/>
+  </g>
+
+  <text x="84" y="585" fill="#82998c" font-family="JetBrains Mono, ui-monospace, Menlo, monospace" font-size="18" font-weight="500">silent-heroes.vercel.app</text>
+</svg>

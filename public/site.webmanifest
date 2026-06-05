@@ -1,0 +1,23 @@
+{
+  "name": "Silent Heroes",
+  "short_name": "Silent Heroes",
+  "description": "Find under-credited contributors in public GitHub repos and give their quiet work a moment.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fbfbfa",
+  "theme_color": "#06140e",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
